@@ -133,14 +133,18 @@ export default function AccountSettings() {
     const file = event.target.files?.[0]
     if (!file || !currentUser) return
 
-    const validTypes = ['image/jpeg', 'image/png', 'image/jpg', 'image/webp']
-    if (!validTypes.includes(file.type)) {
-      showToast('Please upload a valid image (JPEG, PNG, WEBP)', true)
+    const extension = file.name?.split('.').pop()?.toLowerCase() || ''
+    const allowedExtensions = ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif', 'avif']
+    const isImageMime = file.type.startsWith('image/')
+    const isAllowedExtension = allowedExtensions.includes(extension)
+
+    if (!isImageMime && !isAllowedExtension) {
+      showToast('Please upload a valid image file', true)
       return
     }
 
-    if (file.size > 5 * 1024 * 1024) {
-      showToast('Image size must be less than 5MB', true)
+    if (file.size > 10 * 1024 * 1024) {
+      showToast('Image size must be less than 10MB', true)
       return
     }
 
@@ -352,7 +356,7 @@ export default function AccountSettings() {
             <input
               ref={fileInputRef}
               type="file"
-              accept="image/jpeg,image/png,image/webp"
+              accept="image/*"
               onChange={handleAvatarUpload}
               className="hidden"
             />

@@ -79,7 +79,7 @@ export default function Landing() {
 
   return (
 
-    <div className="bg-[#0a0a0a] text-white overflow-x-hidden">
+    <div className="bg-[#0a0a0a] text-white overflow-x-hidden max-w-full">
 
       <style>{`
 
@@ -284,14 +284,14 @@ export default function Landing() {
 
       </nav>
 
-      <main className="relative z-10">
+      <main className="relative z-10 overflow-x-hidden">
 
         <section
           id="home"
-          className="min-h-screen flex items-center px-6 md:px-12 pt-28"
+          className="min-h-screen flex items-center px-4 sm:px-6 md:px-12 pt-28 overflow-x-hidden"
         >
 
-          <div className="max-w-7xl mx-auto w-full grid lg:grid-cols-2 gap-20 items-center">
+          <div className="max-w-7xl mx-auto w-full grid lg:grid-cols-2 gap-10 md:gap-20 items-center">
 
             <div className="space-y-8 reveal">
 
@@ -326,21 +326,21 @@ export default function Landing() {
 
               <div className="flex flex-wrap gap-4">
 
-                <button className="px-8 py-4 bg-white text-black rounded-2xl font-semibold flex items-center gap-2 hover:scale-105 transition">
-
+                <Link
+                  to="/signup"
+                  className="px-8 py-4 bg-white text-black rounded-2xl font-semibold flex items-center gap-2 hover:scale-105 transition"
+                >
                   <UserPlus size={18} />
-
                   Get Started
+                </Link>
 
-                </button>
-
-                <button className="px-8 py-4 border border-white/10 bg-white/5 rounded-2xl flex items-center gap-2 hover:bg-white/10 transition">
-
+                <Link
+                  to="/login"
+                  className="px-8 py-4 border border-white/10 bg-white/5 rounded-2xl flex items-center gap-2 hover:bg-white/10 transition"
+                >
                   <LogIn size={18} />
-
                   Login
-
-                </button>
+                </Link>
 
               </div>
 
