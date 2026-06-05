@@ -1029,5 +1029,26 @@ export const editMessage = async (messageId, newMessage) => {
   if (error) throw error
   return data
 }
+// Subscribe to read receipts for a chat
+export const subscribeToReadReceipts = (chatId, currentUserId, callback) => {
+  return supabase
+    .channel(`read-receipts:${chatId}`)
+    .on(
+      'postgres_changes',
+      {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'messages',
+        filter: `chat_id=eq.${chatId}`,
+      },
+      (payload) => {
+        // Only notify if the message was read by someone else
+        if (payload.new.is_read && payload.new.sender_id === currentUserId) {
+          callback(payload.new.id)
+        }
+      }
+    )
+    .subscribe()
+}
 
 export default supabase
