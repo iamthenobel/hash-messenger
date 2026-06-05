@@ -66,6 +66,28 @@ export default function Home() {
     return date.toLocaleDateString([], { month: 'short', day: 'numeric' })
   }
 
+  const getLastMessagePreview = (msg) => {
+    if (!msg) return 'No messages yet'
+
+    const caption = (msg.caption || '').trim()
+    const mediaType = msg.media_type || ''
+
+    if (msg.media_url) {
+      const mediaLabel =
+        mediaType === 'video' ? 'Sent a video' :
+        mediaType === 'document' ? 'Sent a file' :
+        'Sent a photo'
+
+      if (caption) {
+        return `${mediaLabel}: ${caption}`
+      }
+
+      return `${mediaLabel}.`
+    }
+
+    return (msg.message || '').trim() || 'No messages yet'
+  }
+
   const buildChatList = async (memberships, userId) => {
     if (!memberships || memberships.length === 0) {
       return []
@@ -126,7 +148,7 @@ export default function Home() {
           id: chatId,
           name: peer?.full_name || peer?.username || 'Unknown',
           avatar: peer?.avatar || `https://ui-avatars.com/api/?background=252525&color=fff&name=${encodeURIComponent(peer?.full_name || 'User')}`,
-          lastMsg: lastMsg?.message || 'No messages yet',
+          lastMsg: getLastMessagePreview(lastMsg),
           time: lastMsg ? formatTime(lastMsg.created_at) : formatDateLabel(membership.chats?.created_at),
           unread: false,
           pinned: false,

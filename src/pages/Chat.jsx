@@ -957,7 +957,7 @@ export default function Chat() {
       )}
 
       {/* Input Footer */}
-      <footer className="fixed bottom-0 w-full z-40 px-3 py-2 flex items-center gap-2 bg-[#0a0a0a]/85 backdrop-blur-lg border-t border-white/5">
+      <footer className="fixed bottom-0 w-full max-w-[97%] z-40 px-3 py-2 flex items-center gap-2 bg-[#0a0a0a]/85 backdrop-blur-lg border-t border-white/5">
         {blockState.blockedByMe || blockState.blockedByThem ? (
           <div className="w-full rounded-2xl border border-white/10 bg-[#121212]/90 px-4 py-3 text-sm text-gray-200 shadow-xl">
             {blockState.blockedByMe ? (
