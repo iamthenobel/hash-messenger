@@ -79,17 +79,26 @@ export default function Landing() {
 
   return (
 
-    <div className="bg-[#0a0a0a] text-white overflow-x-hidden max-w-full">
+    <div className="relative w-full min-h-screen overflow-x-hidden bg-[#0a0a0a] text-white">
 
       <style>{`
 
         html{
           scroll-behavior:smooth;
+          width:100%;
+          overflow-x:hidden;
+        }
+
+        *, *::before, *::after {
+          box-sizing:border-box;
         }
 
         body{
+          margin:0;
+          width:100%;
           font-family:Inter,system-ui,sans-serif;
           background:#0a0a0a;
+          overflow-x:hidden;
         }
 
         .gradient-text{
@@ -182,7 +191,7 @@ export default function Landing() {
       <div className="glow top-[-200px] left-[-120px]"></div>
       <div className="glow bottom-[-250px] right-[-120px]"></div>
 
-      <nav className="fixed top-0 left-0 w-full z-50 transition-all duration-300 glass">
+      <nav className="fixed top-0 left-0 w-[97%] z-50 transition-all duration-300 glass">
 
         <div className="max-w-7xl mx-auto px-6 md:px-12 py-4 flex items-center justify-between">
 
@@ -284,14 +293,14 @@ export default function Landing() {
 
       </nav>
 
-      <main className="relative z-10 overflow-x-hidden">
+      <main className="relative z-10 w-full max-w-full overflow-x-hidden">
 
         <section
           id="home"
-          className="min-h-screen flex items-center px-4 sm:px-6 md:px-12 pt-28 overflow-x-hidden"
+          className="min-h-screen w-full flex items-center px-4 sm:px-6 md:px-12 pt-28 overflow-x-hidden"
         >
 
-          <div className="max-w-7xl mx-auto w-full grid lg:grid-cols-2 gap-10 md:gap-20 items-center">
+          <div className="mx-auto grid w-full max-w-7xl grid-cols-1 items-center gap-10 lg:grid-cols-2 md:gap-20">
 
             <div className="space-y-8 reveal">
 

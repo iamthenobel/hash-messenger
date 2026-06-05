@@ -35,6 +35,7 @@ import supabase, {
   editMessage,
   markMessagesAsRead,
   subscribeToMessages,
+  subscribeToTypingStatus,
   updateTypingStatus,
   uploadChatMedia,
   clearChatMessages,
@@ -89,6 +90,9 @@ export default function Chat() {
   const typingTimeoutRef = useRef(null)
   const inputRef = useRef(null)
   const subscriptionRef = useRef(null)
+  const typingSubscriptionRef = useRef(null)
+  const readReceiptSubscriptionRef = useRef(null)
+  const socketRef = useRef(null)
   const processedMessageIds = useRef(new Set())
   const [showScrollToBottom, setShowScrollToBottom] = useState(false)
 
@@ -286,6 +290,9 @@ export default function Chat() {
       const unreadMessages = loadedMessages.filter(msg => msg.sender_id !== currentUser.id && !msg.is_read)
       if (unreadMessages.length > 0) {
         await markMessagesAsRead(chatId, currentUser.id)
+        setMessages(prev => prev.map(msg =>
+          unreadMessages.some(unread => unread.id === msg.id) ? { ...msg, is_read: true, is_delivered: true } : msg
+        ))
       }
     } catch (err) {
       console.error('Load chat error:', err)
@@ -300,20 +307,31 @@ export default function Chat() {
     if (subscriptionRef.current) subscriptionRef.current.unsubscribe()
 
     subscriptionRef.current = subscribeToMessages(chatId, (payload) => {
-      if (processedMessageIds.current.has(payload.new?.id)) return
-      
+      const messageId = payload.new?.id || payload.old?.id
+      if (messageId && processedMessageIds.current.has(messageId)) return
+
       if (payload.eventType === 'INSERT') {
-        processedMessageIds.current.add(payload.new.id)
         const newMsg = payload.new
+        if (messageId) processedMessageIds.current.add(messageId)
         setMessages(prev => mergeUniqueMessages(prev, [newMsg]))
         scrollToBottom()
         if (newMsg.sender_id !== currentUser?.id) {
           markMessagesAsRead(chatId, currentUser?.id)
+          setMessages(prev => prev.map(msg =>
+            msg.id === newMsg.id ? { ...msg, is_read: true, is_delivered: true } : msg
+          ))
         }
-        setTimeout(() => processedMessageIds.current.delete(payload.new.id), 1000)
+        if (messageId) {
+          setTimeout(() => processedMessageIds.current.delete(messageId), 1000)
+        }
       } else if (payload.eventType === 'UPDATE') {
         const updatedMsg = payload.new
-        setMessages(prev => prev.map(msg => msg.id === updatedMsg.id ? { ...msg, ...updatedMsg } : msg))
+        setMessages(prev => mergeUniqueMessages(
+          prev.map(msg => (msg.id === updatedMsg.id ? { ...msg, ...updatedMsg } : msg)),
+          []
+        ))
+      } else if (payload.eventType === 'DELETE') {
+        setMessages(prev => prev.filter(msg => msg.id !== payload.old.id))
       }
     })
 
@@ -417,7 +435,20 @@ export default function Chat() {
       if (deleteForAll) {
         setMessages(prev => prev.filter(msg => msg.id !== messageId))
       } else {
-        setMessages(prev => prev.map(msg => msg.id === messageId ? { ...msg, message: 'Message deleted', deleted: true, media_url: null, edited: false } : msg))
+        setMessages(prev => prev.map(msg => msg.id === messageId
+          ? {
+              ...msg,
+              message: 'Message deleted',
+              deleted: true,
+              media_url: null,
+              media_type: null,
+              media_name: null,
+              media_size: null,
+              caption: null,
+              edited: false,
+            }
+          : msg
+        ))
       }
       showToast('Message deleted')
       setActionSheetOpen(false)
@@ -609,6 +640,8 @@ const MessageStatus = ({ message, isMe }) => {
   }
 
   const renderMediaMessage = (msg) => {
+    if (msg.deleted) return null
+
     switch (msg.media_type) {
       case 'image':
         return (
@@ -698,11 +731,75 @@ const MessageStatus = ({ message, isMe }) => {
   }, [currentUser, contact])
 
   useEffect(() => {
+    if (!chatId || !currentUser) return
+
+    const wsUrl = import.meta.env.VITE_CHAT_WS_URL || 'ws://localhost:3001'
+    const socket = new WebSocket(wsUrl)
+    socketRef.current = socket
+
+    socket.onopen = () => {
+      socket.send(JSON.stringify({ type: 'subscribe', chatId }))
+    }
+
+    socket.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data)
+        if (payload?.type !== 'chat:update' || payload.chatId !== chatId || !payload.message) return
+
+        setMessages(prev => {
+          if (prev.some(msg => msg.id === payload.message.id)) return prev
+          return mergeUniqueMessages(prev, [payload.message])
+        })
+
+        if (payload.message.sender_id !== currentUser.id) {
+          markMessagesAsRead(chatId, currentUser.id)
+        }
+
+        requestAnimationFrame(() => scrollToBottom())
+      } catch (error) {
+        console.error('WebSocket chat update failed:', error)
+      }
+    }
+
+    return () => {
+      socket.close()
+      socketRef.current = null
+    }
+  }, [chatId, currentUser, mergeUniqueMessages, scrollToBottom])
+
+  useEffect(() => {
     if (chatId && currentUser) {
       const cleanup = setupRealtimeSubscription()
       return cleanup
     }
   }, [chatId, currentUser, setupRealtimeSubscription])
+
+  useEffect(() => {
+    if (!chatId || !currentUser?.id) return
+
+    readReceiptSubscriptionRef.current?.unsubscribe?.()
+    readReceiptSubscriptionRef.current = subscribeToReadReceipts(chatId, currentUser.id, (messageId) => {
+      setMessages(prev => prev.map(msg =>
+        msg.id === messageId ? { ...msg, is_read: true, is_delivered: true } : msg
+      ))
+    })
+
+    return () => readReceiptSubscriptionRef.current?.unsubscribe?.()
+  }, [chatId, currentUser?.id])
+
+  useEffect(() => {
+    if (!chatId || !currentUser?.id) return
+
+    typingSubscriptionRef.current?.unsubscribe?.()
+    typingSubscriptionRef.current = subscribeToTypingStatus(chatId, currentUser.id, (typing) => {
+      setContactTyping(typing)
+      if (!typing) {
+        setTimeout(() => setContactTyping(false), 500)
+      }
+    })
+
+    return () => typingSubscriptionRef.current?.unsubscribe?.()
+  }, [chatId, currentUser?.id])
 
   useEffect(() => {
     if (!loading && messages.length > 0) {
@@ -726,6 +823,28 @@ const MessageStatus = ({ message, isMe }) => {
     return () => document.removeEventListener('click', handleClickOutside)
   }, [menuOpen, attachMenuOpen])
 
+  useEffect(() => {
+    if (!mediaViewerOpen) return
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'ArrowRight') {
+        event.preventDefault()
+        showNextMedia()
+      }
+      if (event.key === 'ArrowLeft') {
+        event.preventDefault()
+        showPreviousMedia()
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        closeMediaViewer()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [mediaViewerOpen, showNextMedia, showPreviousMedia, closeMediaViewer])
+
   const messageGroups = groupMessagesByDate()
   const mediaItems = getMediaItems()
   const currentMedia = mediaItems[mediaViewerIndex] || null
@@ -744,7 +863,7 @@ const MessageStatus = ({ message, isMe }) => {
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white flex flex-col h-screen">
       {/* Header */}
-      <header className="fixed top-0 w-full z-40 px-4 py-2 flex items-center justify-between bg-[#0a0a0a]/85 backdrop-blur-lg border-b border-white/5">
+      <header className="fixed top-0 w-[97%] z-40 px-4 py-2 flex items-center justify-between bg-[#0a0a0a]/85 backdrop-blur-lg border-b border-white/5">
         <div className="flex items-center gap-3">
           <button onClick={() => navigate('/home')} className="p-1.5 rounded-xl hover:bg-white/5 transition">
             <ArrowLeft size={20} />
@@ -898,7 +1017,7 @@ const MessageStatus = ({ message, isMe }) => {
       )}
 
       {/* Input Footer */}
-      <footer className="fixed bottom-0 w-full z-40 px-3 py-2 flex items-center gap-2 bg-[#0a0a0a]/85 backdrop-blur-lg border-t border-white/5">
+      <footer className="fixed bottom-0 w-[97%] z-40 px-3 py-2 flex items-center gap-2 bg-[#0a0a0a]/85 backdrop-blur-lg border-t border-white/5">
         {blockState.blockedByMe || blockState.blockedByThem ? (
           <div className="w-full rounded-2xl border border-white/10 bg-[#121212]/90 px-4 py-3 text-sm text-gray-200 shadow-xl">
             {blockState.blockedByMe ? (
@@ -1001,32 +1120,49 @@ const MessageStatus = ({ message, isMe }) => {
       {/* Media Viewer Modal */}
       {mediaViewerOpen && currentMedia && (
         <>
-          <div className="fixed inset-0 z-[70] bg-black/90 backdrop-blur-sm" onClick={closeMediaViewer} />
-          <div className="fixed inset-0 z-[80] flex items-center justify-center p-4" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
-            <div className="relative w-full max-w-5xl rounded-3xl border border-white/10 bg-[#111111] shadow-2xl" onClick={(e) => e.stopPropagation()}>
-              <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
-                <div><p className="text-sm font-semibold">Media viewer</p><p className="text-[11px] text-gray-400">Swipe left or right to browse</p></div>
-                <button onClick={closeMediaViewer} className="rounded-full p-2 hover:bg-white/10"><X size={18} /></button>
-              </div>
-              <div className="flex flex-col gap-4 p-4 md:flex-row md:items-center md:justify-between">
-                <div className="flex items-center gap-2">
-                  <button onClick={showPreviousMedia} className="rounded-full bg-white/10 p-2 hover:bg-white/15">←</button>
-                  <span className="text-xs text-gray-300">{mediaViewerIndex + 1} / {mediaItems.length}</span>
-                  <button onClick={showNextMedia} className="rounded-full bg-white/10 p-2 hover:bg-white/15">→</button>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button onClick={() => handleDownloadMedia(currentMedia.media_url, currentMedia.media_name || 'media')} className="rounded-full bg-white/10 px-3 py-2 text-sm hover:bg-white/15">Download</button>
+          <div className="fixed inset-0 z-[70] bg-black/95" onClick={closeMediaViewer} />
+          <div className="fixed inset-0 z-[80] flex flex-col" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
+            <div className="flex items-center justify-between px-4 py-3 text-white" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center gap-2">
+                <button onClick={closeMediaViewer} className="rounded-full bg-white/10 p-2 hover:bg-white/15" aria-label="Close media viewer">
+                  <X size={18} />
+                </button>
+                <div>
+                  <p className="text-sm font-semibold">Media viewer</p>
+                  <p className="text-[11px] text-gray-300">{mediaViewerIndex + 1} / {mediaItems.length}</p>
                 </div>
               </div>
-              <div className="px-4 pb-4">
+              <button
+                onClick={() => handleDownloadMedia(currentMedia.media_url, currentMedia.media_name || 'media')}
+                className="rounded-full bg-white/10 px-3 py-2 text-sm text-white hover:bg-white/15"
+              >
+                Download
+              </button>
+            </div>
+
+            <div className="flex flex-1 items-center justify-center px-2 pb-4" onClick={(e) => e.stopPropagation()}>
+              <div className="relative flex h-full w-full items-center justify-center rounded-3xl bg-black">
                 {currentMedia.media_type === 'image' ? (
-                  <img src={currentMedia.media_url} alt={currentMedia.caption || 'Image'} className="mx-auto max-h-[65vh] w-full rounded-2xl object-contain" />
+                  <img
+                    src={currentMedia.media_url}
+                    alt={currentMedia.caption || 'Image'}
+                    className="h-full w-full object-contain"
+                  />
                 ) : (
-                  <video src={currentMedia.media_url} controls className="mx-auto max-h-[65vh] w-full rounded-2xl object-contain bg-black" />
+                  <video
+                    src={currentMedia.media_url}
+                    controls
+                    className="h-full w-full object-contain bg-black"
+                  />
                 )}
-                {currentMedia.caption && <p className="mt-3 text-sm text-gray-200">{currentMedia.caption}</p>}
               </div>
             </div>
+
+            {currentMedia.caption && (
+              <div className="px-4 pb-5 text-center text-sm text-gray-200" onClick={(e) => e.stopPropagation()}>
+                {currentMedia.caption}
+              </div>
+            )}
           </div>
         </>
       )}

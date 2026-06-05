@@ -155,16 +155,26 @@ export const ensureUserProfile = async (user, metadata = {}) => {
 // AVATAR STORAGE FUNCTIONS
 // ============================================
 
-export const uploadAvatar = async (userId, file) => {
+export const uploadAvatar = async (userId, file, contentType = file?.type || 'image/jpeg') => {
   try {
-    const fileExt = file.name.split('.').pop()
+    const mimeToExt = {
+      'image/jpeg': 'jpg',
+      'image/png': 'png',
+      'image/webp': 'webp',
+      'image/heic': 'heic',
+      'image/heif': 'heif',
+      'image/avif': 'avif',
+    }
+
+    const fileExt = (file.name?.split('.').pop()?.toLowerCase() || mimeToExt[contentType] || 'jpg')
     const fileName = `${userId}/avatar-${Date.now()}.${fileExt}`
-    
+
     const { error: uploadError } = await supabase.storage
       .from(avatarBucketId)
       .upload(fileName, file, {
         cacheControl: '3600',
-        upsert: true
+        upsert: true,
+        contentType,
       })
 
     if (uploadError) throw uploadError
@@ -283,13 +293,20 @@ export const markMessagesAsRead = async (chatId, userId) => {
         read_at: new Date().toISOString(),
       }))
 
-    if (readsToInsert.length === 0) return
+    if (readsToInsert.length > 0) {
+      const { error: insertError } = await supabase
+        .from('message_reads')
+        .upsert(readsToInsert, { onConflict: 'message_id,user_id' })
 
-    const { error: insertError } = await supabase
-      .from('message_reads')
-      .insert(readsToInsert)
+      if (insertError) throw insertError
+    }
 
-    if (insertError) throw insertError
+    const { error: updateError } = await supabase
+      .from('messages')
+      .update({ is_read: true, updated_at: new Date().toISOString() })
+      .in('id', messageIds)
+
+    if (updateError) throw updateError
   } catch (error) {
     console.error('Mark messages as read error:', error)
   }
@@ -687,6 +704,24 @@ export const searchUsers = async (searchTerm) => {
   return data
 }
 
+export const broadcastChatEvent = async (chatId, message) => {
+  if (!chatId || !message) return
+
+  try {
+    await fetch(import.meta.env.VITE_CHAT_WS_BROADCAST_URL || 'http://localhost:3001/api/chat-events', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chatId,
+        type: 'chat:update',
+        message,
+      }),
+    })
+  } catch (error) {
+    console.warn('Broadcast chat event failed:', error)
+  }
+}
+
 export const getUnreadCount = async (userId, chatId = null) => {
   try {
     let query = supabase
@@ -734,12 +769,12 @@ export const getUnreadCount = async (userId, chatId = null) => {
 export const subscribeToMessages = (chatId, callback) => {
   return supabase
     .channel(`messages:${chatId}`)
-    .on('postgres_changes', 
-      { 
-        event: 'INSERT', 
-        schema: 'public', 
+    .on('postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
         table: 'messages',
-        filter: `chat_id=eq.${chatId}`
+        filter: `chat_id=eq.${chatId}`,
       },
       (payload) => {
         callback(payload)
@@ -836,6 +871,8 @@ export const sendMessage = async (chatId, senderId, message, replyToId = null) =
     })
     .eq('id', chatId)
 
+  await broadcastChatEvent(chatId, data)
+
   return data
 }
 
@@ -851,7 +888,15 @@ export const deleteMessage = async (messageId, userId, deleteForAll = false) => 
   } else {
     const { error } = await supabase
       .from('messages')
-      .update({ deleted: true, message: 'Message deleted' })
+      .update({
+        deleted: true,
+        message: 'Message deleted',
+        media_url: null,
+        media_type: null,
+        media_name: null,
+        media_size: null,
+        caption: null,
+      })
       .eq('id', messageId)
 
     if (error) throw error
@@ -882,9 +927,11 @@ export const subscribeToTypingStatus = (chatId, currentUserId, callback) => {
         filter: `chat_id=eq.${chatId}`,
       },
       (payload) => {
-        if (payload.new.user_id !== currentUserId && payload.new.is_typing) {
-          callback(true)
-          // Auto-clear after 3 seconds
+        if (payload.new.user_id === currentUserId) return
+
+        callback(Boolean(payload.new.is_typing))
+
+        if (payload.new.is_typing) {
           setTimeout(() => callback(false), 3000)
         }
       }
@@ -1009,6 +1056,8 @@ export const sendMediaMessage = async (chatId, senderId, mediaData, mediaType, c
       last_message_at: new Date().toISOString(),
     })
     .eq('id', chatId)
+
+  await broadcastChatEvent(chatId, data)
 
   return data
 }

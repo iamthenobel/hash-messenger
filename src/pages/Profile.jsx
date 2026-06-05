@@ -127,9 +127,18 @@ export default function Profile() {
     const file = event.target.files?.[0]
     if (!file || !currentUser) return
 
-    const extension = file.name?.split('.').pop()?.toLowerCase() || ''
+    const mimeToExt = {
+      'image/jpeg': 'jpg',
+      'image/png': 'png',
+      'image/webp': 'webp',
+      'image/heic': 'heic',
+      'image/heif': 'heif',
+      'image/avif': 'avif',
+    }
+
+    const extension = file.name?.split('.').pop()?.toLowerCase() || mimeToExt[file.type] || ''
     const allowedExtensions = ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif', 'avif']
-    const isImageMime = file.type.startsWith('image/')
+    const isImageMime = file.type?.startsWith('image/') || Boolean(extension)
     const isAllowedExtension = allowedExtensions.includes(extension)
 
     if (!isImageMime && !isAllowedExtension) {
@@ -144,7 +153,7 @@ export default function Profile() {
 
     try {
       setUploadingAvatar(true)
-      const avatarUrl = await uploadAvatar(currentUser.id, file)
+      const avatarUrl = await uploadAvatar(currentUser.id, file, file.type || 'image/jpeg')
       
       // Update profile with new avatar
       const { error } = await supabase
@@ -396,18 +405,22 @@ export default function Profile() {
             </div>
             {isOwnProfile && !editing && (
               <>
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={uploadingAvatar}
-                  className="absolute bottom-1 right-1 bg-[#252525] p-1.5 rounded-full border border-white/20 shadow-md hover:bg-white/10 transition disabled:opacity-50"
+                <label
+                  htmlFor="avatar-upload-input"
+                  className="absolute bottom-1 right-1 bg-[#252525] p-1.5 rounded-full border border-white/20 shadow-md hover:bg-white/10 transition disabled:opacity-50 cursor-pointer"
                 >
                   <Camera size={14} />
-                </button>
+                </label>
                 <input
+                  id="avatar-upload-input"
                   ref={fileInputRef}
                   type="file"
                   accept="image/*"
-                  onChange={handleAvatarUpload}
+                  capture="environment"
+                  onChange={(event) => {
+                    handleAvatarUpload(event)
+                    event.target.value = ''
+                  }}
                   className="hidden"
                 />
               </>
