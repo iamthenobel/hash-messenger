@@ -23,6 +23,7 @@ import {
   Edit2,
   Save,
   ArrowDown,
+  Loader,
 } from 'react-feather'
 import supabase, {
   getCurrentUser,
@@ -65,16 +66,10 @@ export default function Chat() {
   const [editText, setEditText] = useState('')
   const [replyToMessage, setReplyToMessage] = useState(null)
   
-  // File upload states
-  const [pendingFiles, setPendingFiles] = useState([])
+  // File upload states - Now with optimistic updates
   const [showPreviewModal, setShowPreviewModal] = useState(false)
-  const [currentCaption, setCurrentCaption] = useState('')
-  const [uploadProgress, setUploadProgress] = useState({})
-  const [mediaViewerOpen, setMediaViewerOpen] = useState(false)
-  const [mediaViewerIndex, setMediaViewerIndex] = useState(0)
-  const [touchStartX, setTouchStartX] = useState(null)
-  const [confirmModal, setConfirmModal] = useState(null)
-  const [blockState, setBlockState] = useState({ blockedByMe: false, blockedByThem: false })
+  const [pendingFiles, setPendingFiles] = useState([])
+  const [uploadingMessages, setUploadingMessages] = useState(new Map()) // Map of tempId -> upload progress
   
   const messagesEndRef = useRef(null)
   const messagesContainerRef = useRef(null)
@@ -88,17 +83,14 @@ export default function Chat() {
   const mergeUniqueMessages = useCallback((existingMessages = [], incomingMessages = []) => {
     const messageMap = new Map()
     
-    // Add existing messages
     existingMessages.forEach(msg => {
       if (msg?.id) messageMap.set(msg.id, msg)
     })
     
-    // Add incoming messages
     incomingMessages.forEach(msg => {
       if (msg?.id) messageMap.set(msg.id, msg)
     })
     
-    // Convert to array and sort by created_at
     return Array.from(messageMap.values()).sort((a, b) => 
       new Date(a.created_at) - new Date(b.created_at)
     )
@@ -158,6 +150,7 @@ export default function Chat() {
     setMenuOpen(false)
   }
 
+  const [confirmModal, setConfirmModal] = useState(null)
   const closeConfirmModal = () => setConfirmModal(null)
 
   const handleClearChat = async () => {
@@ -207,74 +200,106 @@ export default function Chat() {
     try {
       await deleteChatForUser(chatId, currentUser.id, contact.id)
       navigate('/home', { replace: true })
-      showToast('Everything between you and this contact has been cleared')
+      showToast('Chat removed')
     } catch (err) {
       console.error('Delete chat error:', err)
       showToast('Failed to remove chat', true)
     }
   }
 
-  // Handle file selection
-  const handleFileSelect = (e, type) => {
+  const [blockState, setBlockState] = useState({ blockedByMe: false, blockedByThem: false })
+
+  // Handle file selection - Don't open preview, just start upload immediately
+  const handleFileSelect = async (e, type) => {
     const files = Array.from(e.target.files)
-    const newFiles = files.map(file => ({
-      file,
-      type,
-      preview: type === 'image' ? URL.createObjectURL(file) : null,
-      caption: '',
-      id: Date.now() + Math.random(),
-    }))
-    setPendingFiles(prev => [...prev, ...newFiles])
-    if (newFiles.length > 0) {
-      setShowPreviewModal(true)
-    }
-    setAttachMenuOpen(false)
-  }
-
-  // Remove pending file
-  const removePendingFile = (fileId) => {
-    setPendingFiles(prev => {
-      const file = prev.find(f => f.id === fileId)
-      if (file?.preview) URL.revokeObjectURL(file.preview)
-      return prev.filter(f => f.id !== fileId)
-    })
-  }
-
-  // Update caption for a file
-  const updateCaption = (fileId, caption) => {
-    setPendingFiles(prev =>
-      prev.map(f => f.id === fileId ? { ...f, caption } : f)
-    )
-  }
-
-  // Send all pending files
-  const sendPendingFiles = async () => {
-    if (pendingFiles.length === 0 || !chatId || !currentUser) return
-
-    setSending(true)
+    if (files.length === 0) return
     
-    for (const pendingFile of pendingFiles) {
-      try {
-        setUploadProgress(prev => ({ ...prev, [pendingFile.id]: 0 }))
+    setAttachMenuOpen(false)
+    
+    // Start upload for each file immediately
+    for (const file of files) {
+      await startFileUpload(file, type)
+    }
+  }
+
+  // Start file upload with optimistic message
+  const startFileUpload = async (file, type) => {
+    if (!chatId || !currentUser) return
+
+    const tempId = `temp-${Date.now()}-${Math.random()}`
+    const filePreview = type === 'image' ? URL.createObjectURL(file) : null
+    
+    // Create optimistic message with loading state
+    const optimisticMessage = {
+      id: tempId,
+      chat_id: chatId,
+      sender_id: currentUser.id,
+      message: '',
+      media_url: filePreview,
+      media_type: type,
+      media_name: file.name,
+      media_size: file.size,
+      caption: '',
+      created_at: new Date().toISOString(),
+      is_read: true,
+      deleted: false,
+      is_uploading: true,
+      upload_progress: 0,
+    }
+
+    // Add to messages immediately
+    setMessages(prev => mergeUniqueMessages(prev, [optimisticMessage]))
+    scrollToBottom()
+
+    try {
+      // Upload file to storage
+      const result = await uploadChatMedia(
+        chatId,
+        currentUser.id,
+        file,
+        type,
+        (progress) => {
+          // Update progress on the optimistic message
+          setMessages(prev =>
+            prev.map(msg =>
+              msg.id === tempId
+                ? { ...msg, upload_progress: progress }
+                : msg
+            )
+          )
+        }
+      )
+      
+      if (result) {
+        // Send media message to database
+        const sentMessage = await sendMediaMessage(chatId, currentUser.id, result, type, '')
         
-        const result = await uploadChatMedia(
-          chatId,
-          currentUser.id,
-          pendingFile.file,
-          pendingFile.type,
-          (progress) => {
-            setUploadProgress(prev => ({ ...prev, [pendingFile.id]: progress }))
-          }
+        // Replace optimistic message with real one
+        setMessages(prev =>
+          mergeUniqueMessages(
+            prev.filter(msg => msg.id !== tempId),
+            [sentMessage]
+          )
         )
         
-        if (result) {
-          await sendMediaMessage(chatId, currentUser.id, result, pendingFile.type, pendingFile.caption)
-          setUploadProgress(prev => ({ ...prev, [pendingFile.id]: 100 }))
-        }
-      } catch (err) {
-        console.error('Error sending file:', err)
-        showToast(`Failed to send ${pendingFile.file.name}`, true)
+        // Clean up preview URL
+        if (filePreview) URL.revokeObjectURL(filePreview)
       }
+    } catch (err) {
+      console.error('Upload error:', err)
+      // Remove failed message and show error
+      setMessages(prev => prev.filter(msg => msg.id !== tempId))
+      showToast(`Failed to send ${file.name}`, true)
+      if (filePreview) URL.revokeObjectURL(filePreview)
+    }
+  }
+
+  // Send files with captions (for preview modal - optional)
+  const sendPendingFilesWithCaptions = async () => {
+    if (pendingFiles.length === 0) return
+    
+    for (const pendingFile of pendingFiles) {
+      await startFileUploadWithCaption(pendingFile.file, pendingFile.type, pendingFile.caption)
     }
     
     // Clean up
@@ -283,10 +308,65 @@ export default function Chat() {
     })
     setPendingFiles([])
     setShowPreviewModal(false)
-    setCurrentCaption('')
-    setSending(false)
-    await loadChat()
+  }
+
+  const startFileUploadWithCaption = async (file, type, caption) => {
+    if (!chatId || !currentUser) return
+
+    const tempId = `temp-${Date.now()}-${Math.random()}`
+    const filePreview = type === 'image' ? URL.createObjectURL(file) : null
+    
+    const optimisticMessage = {
+      id: tempId,
+      chat_id: chatId,
+      sender_id: currentUser.id,
+      message: '',
+      media_url: filePreview,
+      media_type: type,
+      media_name: file.name,
+      media_size: file.size,
+      caption: caption,
+      created_at: new Date().toISOString(),
+      is_read: true,
+      deleted: false,
+      is_uploading: true,
+      upload_progress: 0,
+    }
+
+    setMessages(prev => mergeUniqueMessages(prev, [optimisticMessage]))
     scrollToBottom()
+
+    try {
+      const result = await uploadChatMedia(
+        chatId,
+        currentUser.id,
+        file,
+        type,
+        (progress) => {
+          setMessages(prev =>
+            prev.map(msg =>
+              msg.id === tempId ? { ...msg, upload_progress: progress } : msg
+            )
+          )
+        }
+      )
+      
+      if (result) {
+        const sentMessage = await sendMediaMessage(chatId, currentUser.id, result, type, caption)
+        setMessages(prev =>
+          mergeUniqueMessages(
+            prev.filter(msg => msg.id !== tempId),
+            [sentMessage]
+          )
+        )
+        if (filePreview) URL.revokeObjectURL(filePreview)
+      }
+    } catch (err) {
+      console.error('Upload error:', err)
+      setMessages(prev => prev.filter(msg => msg.id !== tempId))
+      showToast(`Failed to send ${file.name}`, true)
+      if (filePreview) URL.revokeObjectURL(filePreview)
+    }
   }
 
   // Load chat details and messages
@@ -328,7 +408,6 @@ export default function Chat() {
     }
 
     subscriptionRef.current = subscribeToMessages(chatId, (payload) => {
-      // Prevent duplicate processing
       if (processedMessageIds.current.has(payload.new?.id)) return
       
       if (payload.eventType === 'INSERT') {
@@ -341,7 +420,6 @@ export default function Chat() {
           markMessagesAsRead(chatId, currentUser?.id)
         }
         
-        // Clean up processed IDs after a delay
         setTimeout(() => {
           processedMessageIds.current.delete(payload.new.id)
         }, 1000)
@@ -397,7 +475,7 @@ export default function Chat() {
     if ((!text && pendingFiles.length === 0) || sending || !chatId || !currentUser) return
 
     if (pendingFiles.length > 0) {
-      await sendPendingFiles()
+      await sendPendingFilesWithCaptions()
     }
 
     if (text) {
@@ -518,7 +596,11 @@ export default function Chat() {
   }
 
   const getMediaItems = () =>
-    messages.filter(msg => msg.media_url && ['image', 'video'].includes(msg.media_type))
+    messages.filter(msg => msg.media_url && ['image', 'video'].includes(msg.media_type) && !msg.is_uploading)
+
+  const [mediaViewerOpen, setMediaViewerOpen] = useState(false)
+  const [mediaViewerIndex, setMediaViewerIndex] = useState(0)
+  const [touchStartX, setTouchStartX] = useState(null)
 
   const openMediaViewer = (message) => {
     const items = getMediaItems()
@@ -594,30 +676,48 @@ export default function Chat() {
     }
   }
 
-  // Render media message
+  // Render media message with loading state
   const renderMediaMessage = (msg) => {
+    const isUploading = msg.is_uploading
+    const progress = msg.upload_progress || 0
+    
     switch (msg.media_type) {
       case 'image':
         return (
           <div className="space-y-1">
-            <img
-              src={msg.media_url}
-              alt={msg.caption || 'Image'}
-              className="max-w-full rounded-lg cursor-pointer max-h-64 object-cover"
-              onClick={() => openMediaViewer(msg)}
-            />
+            <div className="relative">
+              <img
+                src={msg.media_url}
+                alt={msg.caption || 'Image'}
+                className={`max-w-full rounded-lg cursor-pointer max-h-64 object-cover ${isUploading ? 'opacity-70' : ''}`}
+                onClick={() => !isUploading && openMediaViewer(msg)}
+              />
+              {isUploading && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/50 rounded-lg">
+                  <Loader size={32} className="animate-spin text-white mb-2" />
+                  <span className="text-xs text-white">{Math.round(progress)}%</span>
+                </div>
+              )}
+            </div>
             {msg.caption && <p className="text-sm mt-1">{msg.caption}</p>}
           </div>
         )
       case 'video':
         return (
           <div className="space-y-1">
-            <video
-              src={msg.media_url}
-              controls
-              className="max-w-full rounded-lg max-h-64"
-              onClick={() => openMediaViewer(msg)}
-            />
+            <div className="relative">
+              <video
+                src={msg.media_url}
+                controls={!isUploading}
+                className="max-w-full rounded-lg max-h-64"
+              />
+              {isUploading && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/50 rounded-lg">
+                  <Loader size={32} className="animate-spin text-white mb-2" />
+                  <span className="text-xs text-white">{Math.round(progress)}%</span>
+                </div>
+              )}
+            </div>
             {msg.caption && <p className="text-sm mt-1">{msg.caption}</p>}
           </div>
         )
@@ -631,13 +731,20 @@ export default function Chat() {
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium truncate">{msg.media_name}</p>
               <p className="text-xs text-gray-400">{formatFileSize(msg.media_size || 0)}</p>
+              {isUploading && (
+                <div className="mt-1 h-1 bg-white/20 rounded-full overflow-hidden">
+                  <div className="h-full bg-white rounded-full transition-all" style={{ width: `${progress}%` }} />
+                </div>
+              )}
             </div>
-            <button
-              onClick={() => handleDownloadMedia(msg.media_url, msg.media_name)}
-              className="p-2 rounded-lg hover:bg-white/10 transition"
-            >
-              <Download size={16} />
-            </button>
+            {!isUploading && (
+              <button
+                onClick={() => handleDownloadMedia(msg.media_url, msg.media_name)}
+                className="p-2 rounded-lg hover:bg-white/10 transition"
+              >
+                <Download size={16} />
+              </button>
+            )}
           </div>
         )
       default:
@@ -734,23 +841,10 @@ export default function Chat() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#0a0a0a] text-white px-4 py-6">
-        <div className="mx-auto flex max-w-3xl flex-col gap-4">
-          <div className="h-10 w-24 animate-pulse rounded-full bg-white/8" />
-          <div className="rounded-3xl border border-white/10 bg-white/5 p-4">
-            <div className="flex items-center gap-3">
-              <div className="h-12 w-12 animate-pulse rounded-full bg-white/8" />
-              <div className="flex-1 space-y-2">
-                <div className="h-3 w-2/3 animate-pulse rounded-full bg-white/8" />
-                <div className="h-3 w-1/3 animate-pulse rounded-full bg-white/8" />
-              </div>
-            </div>
-            <div className="mt-4 space-y-3">
-              {Array.from({ length: 4 }).map((_, index) => (
-                <div key={index} className="h-14 animate-pulse rounded-2xl bg-white/8" />
-              ))}
-            </div>
-          </div>
+      <div className="min-h-screen bg-[#0a0a0a] text-white flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
+          <p className="text-gray-400">Loading chat...</p>
         </div>
       </div>
     )
@@ -775,14 +869,14 @@ export default function Chat() {
             />
             <div>
               <h2 className="font-semibold text-base text-left">{contact?.full_name || contact?.username || 'Unknown'}</h2>
-            <div className="flex items-center gap-1">
-              <span className={`w-2 h-2 rounded-full ${
-                contactTyping ? 'bg-blue-500' : contactStatus === 'online' ? 'bg-emerald-500' : 'bg-gray-600'
-              }`} />
-              <span className="text-[11px] text-gray-400">
-                {contactTyping ? 'Typing...' : contactStatus === 'online' ? 'Online' : 'Offline'}
-              </span>
-            </div>
+              <div className="flex items-center gap-1">
+                <span className={`w-2 h-2 rounded-full ${
+                  contactTyping ? 'bg-blue-500' : contactStatus === 'online' ? 'bg-emerald-500' : 'bg-gray-600'
+                }`} />
+                <span className="text-[11px] text-gray-400">
+                  {contactTyping ? 'Typing...' : contactStatus === 'online' ? 'Online' : 'Offline'}
+                </span>
+              </div>
             </div>
           </button>
         </div>
@@ -857,6 +951,7 @@ export default function Chat() {
               const isMe = msg.sender_id === currentUser?.id
               const isDeleted = msg.deleted
               const hasMedia = msg.media_url
+              const isUploading = msg.is_uploading
               const repliedMessage = messages.find(item => item.id === msg.reply_to_id)
               const replyText = repliedMessage?.message || msg.reply_to_preview || 'A message'
               
@@ -866,7 +961,7 @@ export default function Chat() {
                   className={`message-enter flex ${isMe ? 'justify-end' : 'justify-start'} mb-3 message-item group`}
                   onContextMenu={(e) => {
                     e.preventDefault()
-                    if (!isDeleted) {
+                    if (!isDeleted && !isUploading) {
                       setSelectedMessage(msg)
                       setActionSheetOpen(true)
                     }
@@ -877,12 +972,12 @@ export default function Chat() {
                       isMe
                         ? 'bg-white text-black rounded-2xl rounded-tr-none'
                         : 'bg-[#1c1c1e]/90 backdrop-blur-sm text-white rounded-2xl rounded-tl-none'
-                    }`}
+                    } ${isUploading ? 'opacity-80' : ''}`}
                   >
-                    {(msg.reply_to_id || msg.reply_to_preview) && (
-                      <div className="mb-2 rounded-xl border border-white/10 bg-black/10 px-3 py-2 text-xs text-[#252525]">
-                        <p className="text-[10px] uppercase tracking-[0.18em] text-[#252525]">Replying to</p>
-                        <p className="mt-1 line-clamp-2 text-[#252525] text-">{replyText}</p>
+                    {(msg.reply_to_id || msg.reply_to_preview) && !isUploading && (
+                      <div className="mb-2 rounded-xl border border-white/10 bg-black/10 px-3 py-2 text-xs">
+                        <p className="text-[10px] uppercase tracking-[0.18em] text-gray-500">Replying to</p>
+                        <p className="mt-1 line-clamp-2 text-gray-600 dark:text-gray-300">{replyText}</p>
                       </div>
                     )}
                     {hasMedia && renderMediaMessage(msg)}
@@ -899,7 +994,7 @@ export default function Chat() {
                       <span className={`text-[9px] ${isMe ? 'text-gray-500' : 'text-gray-400'}`}>
                         {formatTime(msg.created_at)}
                       </span>
-                      {isMe && !isDeleted && (
+                      {isMe && !isDeleted && !isUploading && (
                         <div className="flex items-center gap-1">
                           {msg.edited && <Edit2 size={8} className="text-gray-400" />}
                           <Check size={10} className={msg.is_read ? 'text-blue-400' : 'text-gray-400'} />
@@ -975,54 +1070,54 @@ export default function Chat() {
           </div>
         ) : (
           <>
-        <div className="relative attach-container">
-          <button onClick={() => setAttachMenuOpen(!attachMenuOpen)} className="p-2 rounded-full hover:bg-white/10 transition">
-            <Paperclip size={20} />
-          </button>
-          {attachMenuOpen && (
-            <div className="absolute bottom-12 left-0 w-48 p-2 bg-[#1c1c1e]/95 backdrop-blur-xl border border-white/10 rounded-2xl shadow-xl">
-              <label className="w-full text-left px-3 py-2 rounded-xl text-sm flex items-center gap-3 hover:bg-white/10 cursor-pointer">
-                <Image size={16} /> Image
-                <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => handleFileSelect(e, 'image')} />
-              </label>
-              <label className="w-full text-left px-3 py-2 rounded-xl text-sm flex items-center gap-3 hover:bg-white/10 cursor-pointer">
-                <Video size={16} /> Video
-                <input type="file" accept="video/*" className="hidden" onChange={(e) => handleFileSelect(e, 'video')} />
-              </label>
-              <label className="w-full text-left px-3 py-2 rounded-xl text-sm flex items-center gap-3 hover:bg-white/10 cursor-pointer">
-                <File size={16} /> Document
-                <input type="file" accept=".pdf,.doc,.docx,.txt,.zip" className="hidden" onChange={(e) => handleFileSelect(e, 'document')} />
-              </label>
+            <div className="relative attach-container">
+              <button onClick={() => setAttachMenuOpen(!attachMenuOpen)} className="p-2 rounded-full hover:bg-white/10 transition">
+                <Paperclip size={20} />
+              </button>
+              {attachMenuOpen && (
+                <div className="absolute bottom-12 left-0 w-48 p-2 bg-[#1c1c1e]/95 backdrop-blur-xl border border-white/10 rounded-2xl shadow-xl">
+                  <label className="w-full text-left px-3 py-2 rounded-xl text-sm flex items-center gap-3 hover:bg-white/10 cursor-pointer">
+                    <Image size={16} /> Image
+                    <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => handleFileSelect(e, 'image')} />
+                  </label>
+                  <label className="w-full text-left px-3 py-2 rounded-xl text-sm flex items-center gap-3 hover:bg-white/10 cursor-pointer">
+                    <Video size={16} /> Video
+                    <input type="file" accept="video/*" multiple className="hidden" onChange={(e) => handleFileSelect(e, 'video')} />
+                  </label>
+                  <label className="w-full text-left px-3 py-2 rounded-xl text-sm flex items-center gap-3 hover:bg-white/10 cursor-pointer">
+                    <File size={16} /> Document
+                    <input type="file" accept=".pdf,.doc,.docx,.txt,.zip" multiple className="hidden" onChange={(e) => handleFileSelect(e, 'document')} />
+                  </label>
+                </div>
+              )}
             </div>
-          )}
-        </div>
 
-        <div className="flex-1 bg-[#1c1c1e] rounded-full px-4 py-2 flex items-center">
-          <input
-            ref={inputRef}
-            type="text"
-            placeholder="Message"
-            value={newMessage}
-            onChange={(e) => {
-              setNewMessage(e.target.value)
-              handleTyping()
-            }}
-            onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-            className="flex-1 bg-transparent outline-none text-sm text-white placeholder:text-gray-500"
-            disabled={!!editingMessage}
-          />
-          <button onClick={() => showToast('Emoji picker coming soon')} className="p-1 rounded-full hover:bg-white/10 transition mr-1">
-            <Smile size={16} className="text-gray-400" />
-          </button>
-        </div>
+            <div className="flex-1 bg-[#1c1c1e] rounded-full px-4 py-2 flex items-center">
+              <input
+                ref={inputRef}
+                type="text"
+                placeholder="Message"
+                value={newMessage}
+                onChange={(e) => {
+                  setNewMessage(e.target.value)
+                  handleTyping()
+                }}
+                onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+                className="flex-1 bg-transparent outline-none text-sm text-white placeholder:text-gray-500"
+                disabled={!!editingMessage}
+              />
+              <button onClick={() => showToast('Emoji picker coming soon')} className="p-1 rounded-full hover:bg-white/10 transition mr-1">
+                <Smile size={16} className="text-gray-400" />
+              </button>
+            </div>
 
-        <button
-          onClick={handleSendMessage}
-          disabled={sending || (!newMessage.trim() && pendingFiles.length === 0) || !!editingMessage}
-          className="p-2 rounded-full bg-white text-black hover:bg-gray-200 transition disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          <Send size={20} />
-        </button>
+            <button
+              onClick={handleSendMessage}
+              disabled={sending || (!newMessage.trim() && pendingFiles.length === 0) || !!editingMessage}
+              className="p-2 rounded-full bg-white text-black hover:bg-gray-200 transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Send size={20} />
+            </button>
           </>
         )}
       </footer>
@@ -1051,7 +1146,7 @@ export default function Chat() {
         </div>
       )}
 
-      {/* File Preview Modal */}
+      {/* Media Viewer Modal */}
       {mediaViewerOpen && currentMedia && (
         <>
           <div className="fixed inset-0 z-[70] bg-black/90 backdrop-blur-sm" onClick={closeMediaViewer} />
@@ -1062,115 +1157,55 @@ export default function Chat() {
               onTouchStart={handleTouchStart}
               onTouchEnd={handleTouchEnd}
             >
-                <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
-                  <div>
-                    <p className="text-sm font-semibold">Media viewer</p>
-                    <p className="text-[11px] text-gray-400">Swipe left or right to browse</p>
-                  </div>
-                  <button onClick={closeMediaViewer} className="rounded-full p-2 hover:bg-white/10">
-                    <X size={18} />
+              <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+                <div>
+                  <p className="text-sm font-semibold">Media viewer</p>
+                  <p className="text-[11px] text-gray-400">Swipe left or right to browse</p>
+                </div>
+                <button onClick={closeMediaViewer} className="rounded-full p-2 hover:bg-white/10">
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="flex flex-col gap-4 p-4 md:flex-row md:items-center md:justify-between">
+                <div className="flex items-center gap-2">
+                  <button onClick={showPreviousMedia} className="rounded-full bg-white/10 p-2 hover:bg-white/15">←</button>
+                  <span className="text-xs text-gray-300">{mediaViewerIndex + 1} / {mediaItems.length}</span>
+                  <button onClick={showNextMedia} className="rounded-full bg-white/10 p-2 hover:bg-white/15">→</button>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handleDownloadMedia(currentMedia.media_url, currentMedia.media_name || 'media')}
+                    className="rounded-full bg-white/10 px-3 py-2 text-sm hover:bg-white/15"
+                  >
+                    Download
+                  </button>
+                  <button
+                    onClick={() => handleShareMedia(currentMedia.media_url, currentMedia.media_name || 'media')}
+                    className="rounded-full bg-white px-3 py-2 text-sm text-black hover:bg-gray-100"
+                  >
+                    Share
                   </button>
                 </div>
-
-                <div className="flex flex-col gap-4 p-4 md:flex-row md:items-center md:justify-between">
-                  <div className="flex items-center gap-2">
-                    <button onClick={showPreviousMedia} className="rounded-full bg-white/10 p-2 hover:bg-white/15">←</button>
-                    <span className="text-xs text-gray-300">{mediaViewerIndex + 1} / {mediaItems.length}</span>
-                    <button onClick={showNextMedia} className="rounded-full bg-white/10 p-2 hover:bg-white/15">→</button>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => handleDownloadMedia(currentMedia.media_url, currentMedia.media_name || 'media')}
-                      className="rounded-full bg-white/10 px-3 py-2 text-sm hover:bg-white/15"
-                    >
-                      Download
-                    </button>
-                    <button
-                      onClick={() => handleShareMedia(currentMedia.media_url, currentMedia.media_name || 'media')}
-                      className="rounded-full bg-white px-3 py-2 text-sm text-black hover:bg-gray-100"
-                    >
-                      Share
-                    </button>
-                  </div>
-                </div>
-
-                <div className="px-4 pb-4">
-                  {currentMedia.media_type === 'image' ? (
-                    <img
-                      src={currentMedia.media_url}
-                      alt={currentMedia.caption || 'Image'}
-                      className="mx-auto max-h-[65vh] w-full rounded-2xl object-contain"
-                    />
-                  ) : (
-                    <video
-                      src={currentMedia.media_url}
-                      controls
-                      className="mx-auto max-h-[65vh] w-full rounded-2xl object-contain bg-black"
-                    />
-                  )}
-                  {currentMedia.caption && <p className="mt-3 text-sm text-gray-200">{currentMedia.caption}</p>}
-                </div>
               </div>
-            </div>
-        </>
-      )}
 
-      {showPreviewModal && (
-        <>
-          <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm" onClick={() => setShowPreviewModal(false)} />
-          <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#1c1c1e]/98 backdrop-blur-xl rounded-t-3xl max-h-[80vh] overflow-y-auto animate-slide-up">
-            <div className="sticky top-0 bg-[#1c1c1e] p-4 border-b border-white/10 flex justify-between items-center">
-              <h3 className="font-semibold">Preview ({pendingFiles.length} files)</h3>
-              <button onClick={() => setShowPreviewModal(false)} className="p-1 rounded-full hover:bg-white/10">
-                <X size={20} />
-              </button>
-            </div>
-            <div className="p-4 space-y-4">
-              {pendingFiles.map((item) => (
-                <div key={item.id} className="bg-white/5 rounded-xl p-3">
-                  <div className="flex gap-3">
-                    {item.type === 'image' && item.preview && (
-                      <img src={item.preview} alt="Preview" className="w-20 h-20 rounded-lg object-cover" />
-                    )}
-                    {item.type === 'video' && item.preview && (
-                      <video src={item.preview} className="w-20 h-20 rounded-lg object-cover" />
-                    )}
-                    {item.type === 'document' && (
-                      <div className="w-20 h-20 rounded-lg bg-white/10 flex items-center justify-center">
-                        <File size={32} />
-                      </div>
-                    )}
-                    <div className="flex-1">
-                      <p className="text-sm font-medium truncate">{item.file.name}</p>
-                      <p className="text-xs text-gray-400">{formatFileSize(item.file.size)}</p>
-                      <input
-                        type="text"
-                        placeholder="Add a caption..."
-                        value={item.caption}
-                        onChange={(e) => updateCaption(item.id, e.target.value)}
-                        className="mt-2 w-full bg-[#0a0a0a] border border-white/10 rounded-lg px-3 py-1.5 text-sm outline-none focus:border-white/30"
-                      />
-                    </div>
-                    <button onClick={() => removePendingFile(item.id)} className="p-1 rounded-full hover:bg-red-500/20 text-red-400">
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
-                  {uploadProgress[item.id] > 0 && uploadProgress[item.id] < 100 && (
-                    <div className="mt-2 h-1 bg-white/10 rounded-full overflow-hidden">
-                      <div className="h-full bg-white rounded-full transition-all" style={{ width: `${uploadProgress[item.id]}%` }} />
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-            <div className="sticky bottom-0 bg-[#1c1c1e] p-4 border-t border-white/10 flex gap-3">
-              <button onClick={() => setShowPreviewModal(false)} className="flex-1 py-2 rounded-xl bg-white/10 hover:bg-white/20 transition">
-                Cancel
-              </button>
-              <button onClick={sendPendingFiles} disabled={sending} className="flex-1 py-2 rounded-xl bg-white text-black font-medium hover:bg-gray-100 transition disabled:opacity-50">
-                {sending ? 'Sending...' : `Send ${pendingFiles.length} file${pendingFiles.length > 1 ? 's' : ''}`}
-              </button>
+              <div className="px-4 pb-4">
+                {currentMedia.media_type === 'image' ? (
+                  <img
+                    src={currentMedia.media_url}
+                    alt={currentMedia.caption || 'Image'}
+                    className="mx-auto max-h-[65vh] w-full rounded-2xl object-contain"
+                  />
+                ) : (
+                  <video
+                    src={currentMedia.media_url}
+                    controls
+                    className="mx-auto max-h-[65vh] w-full rounded-2xl object-contain bg-black"
+                  />
+                )}
+                {currentMedia.caption && <p className="mt-3 text-sm text-gray-200">{currentMedia.caption}</p>}
+              </div>
             </div>
           </div>
         </>
