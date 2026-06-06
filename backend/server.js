@@ -85,6 +85,12 @@ wss.on('connection', (socket) => {
   })
 })
 
+server.on('upgrade', (request, socket, head) => {
+  wss.handleUpgrade(request, socket, head, (ws) => {
+    wss.emit('connection', ws, request);
+  });
+});
+
 server.listen(PORT, () => {
   console.log(`Hash chat WebSocket server listening on http://localhost:${PORT}`)
 })

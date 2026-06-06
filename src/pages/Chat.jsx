@@ -734,6 +734,7 @@ const MessageStatus = ({ message, isMe }) => {
     if (!chatId || !currentUser) return
 
     const wsUrl = import.meta.env.VITE_CHAT_WS_URL || 'ws://localhost:3001'
+    console.log('🔌 Connecting to WebSocket at:', wsUrl)
     const socket = new WebSocket(wsUrl)
     socketRef.current = socket
 
