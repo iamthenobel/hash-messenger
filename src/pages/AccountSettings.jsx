@@ -339,7 +339,7 @@ export default function AccountSettings() {
         {/* Profile Picture Section */}
         <div className="text-center mb-6 animate-fade-in-up">
           <div className="relative inline-block group">
-            <div className="w-24 h-24 rounded-full flex items-center justify-center overflow-hidden border-2 border-white/20 shadow-xl bg-gradient-to-br from-[#2c2c30] to-[#1c1c1e]">
+            <div className="w-24 h-24 rounded-full flex items-center justify-center overflow-hidden border-2 border-white/20 shadow-xl bg-linear-to-br from-[#2c2c30] to-[#1c1c1e]">
               <img
                 src={profile?.avatar || `https://ui-avatars.com/api/?background=252525&color=fff&name=${encodeURIComponent(profile?.full_name || 'User')}`}
                 alt={profile?.full_name}

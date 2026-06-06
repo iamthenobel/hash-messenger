@@ -78,7 +78,7 @@ export default function HelpFeedback() {
           className="w-full bg-[#121212]/70 backdrop-blur-sm border border-white/5 rounded-2xl p-5 transition-all hover:bg-[#1c1c20] hover:border-white/10 hover:-translate-y-0.5 animate-fade-in-up"
         >
           <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500/20 to-blue-600/10 flex items-center justify-center">
+            <div className="w-12 h-12 rounded-xl bg-linear-to-br from-blue-500/20 to-blue-600/10 flex items-center justify-center">
               <Mail size={24} className="text-blue-400" />
             </div>
             <div className="flex-1 text-left">
@@ -95,7 +95,7 @@ export default function HelpFeedback() {
           className="w-full bg-[#121212]/70 backdrop-blur-sm border border-white/5 rounded-2xl p-5 mt-4 transition-all hover:bg-[#1c1c20] hover:border-white/10 hover:-translate-y-0.5 animate-fade-in-up"
         >
           <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-emerald-500/20 to-emerald-600/10 flex items-center justify-center">
+            <div className="w-12 h-12 rounded-xl bg-linear-to-br from-emerald-500/20 to-emerald-600/10 flex items-center justify-center">
               <FileText size={24} className="text-emerald-400" />
             </div>
             <div className="flex-1 text-left">
@@ -112,7 +112,7 @@ export default function HelpFeedback() {
           className="w-full bg-[#121212]/70 backdrop-blur-sm border border-white/5 rounded-2xl p-5 mt-4 transition-all hover:bg-[#1c1c20] hover:border-white/10 hover:-translate-y-0.5 animate-fade-in-up"
         >
           <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500/20 to-purple-600/10 flex items-center justify-center">
+            <div className="w-12 h-12 rounded-xl bg-linear-to-br from-purple-500/20 to-purple-600/10 flex items-center justify-center">
               <Info size={24} className="text-purple-400" />
             </div>
             <div className="flex-1 text-left">
@@ -126,7 +126,7 @@ export default function HelpFeedback() {
         {/* Rate Hash Card */}
         <div className="bg-[#121212]/70 backdrop-blur-sm border border-white/5 rounded-2xl p-5 mt-4 animate-fade-in-up">
           <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-amber-500/20 to-amber-600/10 flex items-center justify-center">
+            <div className="w-12 h-12 rounded-xl bg-linear-to-br from-amber-500/20 to-amber-600/10 flex items-center justify-center">
               <Star size={24} className="text-amber-400" />
             </div>
             <div className="flex-1 text-left">

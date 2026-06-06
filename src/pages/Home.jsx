@@ -24,8 +24,7 @@ import supabase,{
   acceptContactRequest,
   getPendingContactRequests,
   getSentContactRequests,
-  getUserChats,
-  getChatMessages,
+  getUnreadCount,
   deleteChatForUser,
   archiveChat,
   unarchiveChat,
@@ -48,6 +47,8 @@ export default function Home() {
   const [toast, setToast] = useState(null)
   const [loading, setLoading] = useState(true)
   const longPressTimer = useRef(null)
+  const homeRealtimeRef = useRef(null)
+  const homeSocketRef = useRef(null)
 
   const showToast = (message, isError = false) => {
     setToast({ message, isError })
@@ -143,6 +144,7 @@ export default function Home() {
         const chatMembers = membersByChat.get(chatId) || []
         const peer = chatMembers.find(m => m.user_id !== userId)?.profiles
         const lastMsg = lastByChat.get(chatId)
+        const unreadCount = await getUnreadCount(userId, chatId)
 
         return {
           id: chatId,
@@ -150,7 +152,9 @@ export default function Home() {
           avatar: peer?.avatar || `https://ui-avatars.com/api/?background=252525&color=fff&name=${encodeURIComponent(peer?.full_name || 'User')}`,
           lastMsg: getLastMessagePreview(lastMsg),
           time: lastMsg ? formatTime(lastMsg.created_at) : formatDateLabel(membership.chats?.created_at),
-          unread: false,
+          unread: unreadCount > 0,
+          unreadCount,
+          lastMessageAt: lastMsg?.created_at || membership.chats?.last_message_at || membership.chats?.created_at || null,
           pinned: false,
           contactId: peer?.id || null,
           username: peer?.username || '',
@@ -195,7 +199,15 @@ export default function Home() {
       const visibleMemberships = (memberships || []).filter(m => !archivedChatIds.has(m.chat_id))
 
       const loadedChats = await buildChatList(visibleMemberships, userId)
-      setChats(loadedChats)
+      const sortedChats = [...loadedChats].sort((a, b) => {
+        const aTime = new Date(a.lastMessageAt || 0).getTime()
+        const bTime = new Date(b.lastMessageAt || 0).getTime()
+        return bTime - aTime
+      })
+      setChats(sortedChats)
+      if (typeof window !== 'undefined') {
+        window.__HASH_CHAT_IDS__ = sortedChats.map(chat => chat.id)
+      }
     } catch (err) {
       console.error('Load chats error:', err)
       showToast('Failed to load chats', true)
@@ -411,6 +423,54 @@ export default function Home() {
     }
   }
 
+  useEffect(() => {
+    if (!currentUser?.id) return
+
+    homeRealtimeRef.current?.unsubscribe?.()
+
+    homeRealtimeRef.current = supabase
+      .channel(`home-messages:${currentUser.id}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'messages' },
+        () => {
+          loadChats(currentUser.id)
+        }
+      )
+      .subscribe()
+
+    return () => homeRealtimeRef.current?.unsubscribe?.()
+  }, [currentUser?.id, loadChats])
+
+  useEffect(() => {
+    if (!currentUser?.id) return
+
+    const wsUrl = import.meta.env.VITE_CHAT_WS_URL || 'ws://localhost:3001'
+    const socket = new WebSocket(wsUrl)
+    homeSocketRef.current = socket
+
+    socket.onopen = () => {
+      const chatIds = (chats || []).map(chat => chat.id).filter(Boolean)
+      chatIds.forEach(chatId => socket.send(JSON.stringify({ type: 'subscribe', chatId })))
+    }
+
+    socket.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data)
+        if (payload?.type !== 'chat:update' || !payload.chatId) return
+
+        loadChats(currentUser.id)
+      } catch (error) {
+        console.error('Home WebSocket update failed:', error)
+      }
+    }
+
+    return () => {
+      socket.close()
+      homeSocketRef.current = null
+    }
+  }, [currentUser?.id, chats, loadChats])
+
   // Initialize
   useEffect(() => {
     const init = async () => {
@@ -488,7 +548,7 @@ export default function Home() {
           <span className="text-xl font-semibold">Hash<span className="text-gray-400">.</span></span>
         </button>
 
-        <div className="flex-1 max-w-[200px] md:max-w-xs mx-3">
+        <div className="flex-1 max-w-50 md:max-w-xs mx-3">
           <div className="relative flex items-center">
             <Search className="pointer-events-none absolute left-3 top-1/2 mt-2 -translate-y-1/2 w-4 h-4 text-gray-500" />
             <input
@@ -619,7 +679,9 @@ export default function Home() {
                       }}
                     />
                     {chat.unread && (
-                      <span className="absolute -top-0.5 -right-0.5 w-3 h-3 bg-emerald-500 rounded-full ring-2 ring-[#0a0a0a]" />
+                      <span className="absolute -top-0.5 -right-0.5 inline-flex min-h-4 min-w-4 items-center justify-center rounded-full bg-emerald-400 px-1 text-[9px] font-semibold text-black ring-2 ring-[#0a0a0a]">
+                        {chat.unreadCount > 9 ? '9+' : chat.unreadCount}
+                      </span>
                     )}
                   </div>
                   <div className="flex-1 min-w-0">

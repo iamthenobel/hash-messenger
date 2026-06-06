@@ -191,7 +191,7 @@ export default function Landing() {
       <div className="glow top-[-200px] left-[-120px]"></div>
       <div className="glow bottom-[-250px] right-[-120px]"></div>
 
-      <nav className="fixed top-0 left-0 w-[97%] z-50 transition-all duration-300 glass">
+      <nav className="fixed top-0 left-0 w-full z-50 transition-all duration-300 glass">
 
         <div className="max-w-7xl mx-auto px-6 md:px-12 py-4 flex items-center justify-between">
 

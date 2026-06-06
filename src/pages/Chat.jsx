@@ -9,7 +9,7 @@ import {
   Paperclip,
   Smile,
   Send,
-  Image,
+  Image as ImageIcon,
   Video,
   File,
   CornerUpLeft,
@@ -583,7 +583,7 @@ export default function Chat() {
 const DoubleCheck = ({ size = 10, className = '' }) => (
   <div className={`relative ${className}`} style={{ width: size * 1.5, height: size }}>
     <Check size={size} className="absolute left-0" />
-    <Check size={size} className="absolute left-[6px]" />
+    <Check size={size} className="absolute left-1.5" />
   </div>
 )
 
@@ -861,9 +861,9 @@ const MessageStatus = ({ message, isMe }) => {
   }
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-white flex flex-col h-screen">
+    <div className="min-h-screen bg-[#0a0a0a] text-white flex items-center justify-center px-2 py-2 lg:px-6 lg:py-6">
       {/* Header */}
-      <header className="fixed top-0 w-[97%] z-40 px-4 py-2 flex items-center justify-between bg-[#0a0a0a]/85 backdrop-blur-lg border-b border-white/5">
+      <header className="fixed top-0 left-0 right-0 z-40 mx-auto w-full max-w-4xl px-4 py-2 flex items-center justify-between bg-[#0a0a0a]/85 backdrop-blur-lg border-b border-white/5 lg:rounded-b-2xl lg:border-x lg:border-white/5">
         <div className="flex items-center gap-3">
           <button onClick={() => navigate('/home')} className="p-1.5 rounded-xl hover:bg-white/5 transition">
             <ArrowLeft size={20} />
@@ -919,7 +919,7 @@ const MessageStatus = ({ message, isMe }) => {
       )}
 
       {/* Chat Messages */}
-      <div ref={messagesContainerRef} onScroll={handleChatScroll} className={`flex-1 overflow-y-auto pt-16 pb-24 px-4 ${editingMessage ? 'mt-12' : ''}`}>
+      <div ref={messagesContainerRef} onScroll={handleChatScroll} className={`w-full max-w-3xl flex-1 overflow-y-auto pt-16 pb-24 px-4 lg:rounded-3xl lg:border lg:border-white/5 lg:bg-[#0d0d0d] ${editingMessage ? 'mt-12' : ''}`}>
         {messages.length === 0 && (
           <div className="flex h-full min-h-[50vh] items-center justify-center px-4 text-center">
             <div className="max-w-sm rounded-3xl border border-white/8 bg-[#121212]/80 p-6 shadow-2xl">
@@ -960,7 +960,7 @@ const MessageStatus = ({ message, isMe }) => {
                     {hasMedia && renderMediaMessage(msg)}
                     {!hasMedia && !isDeleted && (
                       <>
-                        <p className="text-sm whitespace-pre-wrap break-words">{msg.message}</p>
+                        <p className="text-sm whitespace-pre-wrap wrap-break-word">{msg.message}</p>
                         {msg.edited && <span className="text-[9px] text-gray-400 italic ml-1">(edited)</span>}
                       </>
                     )}
@@ -1017,7 +1017,7 @@ const MessageStatus = ({ message, isMe }) => {
       )}
 
       {/* Input Footer */}
-      <footer className="fixed bottom-0 w-[97%] z-40 px-3 py-2 flex items-center gap-2 bg-[#0a0a0a]/85 backdrop-blur-lg border-t border-white/5">
+      <footer className="fixed bottom-0 left-0 right-0 z-40 mx-auto w-full max-w-4xl px-3 py-2 flex items-center gap-2 bg-[#0a0a0a]/85 backdrop-blur-lg border-t border-white/5 lg:rounded-t-2xl lg:border-x lg:border-white/5">
         {blockState.blockedByMe || blockState.blockedByThem ? (
           <div className="w-full rounded-2xl border border-white/10 bg-[#121212]/90 px-4 py-3 text-sm text-gray-200 shadow-xl">
             {blockState.blockedByMe ? (
@@ -1041,7 +1041,7 @@ const MessageStatus = ({ message, isMe }) => {
               {attachMenuOpen && (
                 <div className="absolute bottom-12 left-0 w-48 p-2 bg-[#1c1c1e]/95 backdrop-blur-xl border border-white/10 rounded-2xl shadow-xl">
                   <label className="w-full text-left px-3 py-2 rounded-xl text-sm flex items-center gap-3 hover:bg-white/10 cursor-pointer">
-                    <Image size={16} /> Image
+                    <ImageIcon size={16} /> Image
                     <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => handleFileSelect(e, 'image')} />
                   </label>
                   <label className="w-full text-left px-3 py-2 rounded-xl text-sm flex items-center gap-3 hover:bg-white/10 cursor-pointer">
@@ -1056,7 +1056,7 @@ const MessageStatus = ({ message, isMe }) => {
               )}
             </div>
 
-            <div className="flex-1 bg-[#1c1c1e] rounded-full px-4 py-2 flex items-center">
+            <div className="w-full sm:w-[80%] bg-[#1c1c1e] rounded-full px-4 py-2 flex items-center">
               <input ref={inputRef} type="text" placeholder="Message" value={newMessage} onChange={(e) => { setNewMessage(e.target.value); handleTyping() }} onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()} className="flex-1 bg-transparent outline-none text-sm text-white placeholder:text-gray-500" disabled={!!editingMessage} />
               <button onClick={() => showToast('Emoji picker coming soon')} className="p-1 rounded-full hover:bg-white/10 transition mr-1"><Smile size={16} className="text-gray-400" /></button>
             </div>
@@ -1070,7 +1070,7 @@ const MessageStatus = ({ message, isMe }) => {
 
       {/* Confirm Modal */}
       {confirmModal && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/65 p-4">
+        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/65 p-4">
           <div className="w-full max-w-sm rounded-3xl border border-white/10 bg-[#151515] p-5 shadow-2xl">
             <p className="text-xs uppercase tracking-[0.25em] text-gray-400">Confirmation</p>
             <h3 className="mt-2 text-xl font-semibold text-white">{confirmModal.title}</h3>
@@ -1120,8 +1120,8 @@ const MessageStatus = ({ message, isMe }) => {
       {/* Media Viewer Modal */}
       {mediaViewerOpen && currentMedia && (
         <>
-          <div className="fixed inset-0 z-[70] bg-black/95" onClick={closeMediaViewer} />
-          <div className="fixed inset-0 z-[80] flex flex-col" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
+          <div className="fixed inset-0 z-70 bg-black/95" onClick={closeMediaViewer} />
+          <div className="fixed inset-0 z-80 flex flex-col" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
             <div className="flex items-center justify-between px-4 py-3 text-white" onClick={(e) => e.stopPropagation()}>
               <div className="flex items-center gap-2">
                 <button onClick={closeMediaViewer} className="rounded-full bg-white/10 p-2 hover:bg-white/15" aria-label="Close media viewer">
