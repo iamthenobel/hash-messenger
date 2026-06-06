@@ -37,6 +37,19 @@ export default function Landing() {
 
   const [mobileMenu, setMobileMenu] = useState(false)
 
+  const showcaseCards = [
+    {
+      title: 'Realtime Sync',
+      label: 'Live updates',
+      image: 'https://images.unsplash.com/photo-1516321497487-e288fb19713f?auto=format&fit=crop&w=900&q=80',
+    },
+    {
+      title: 'Secure Rooms',
+      label: 'Encrypted by design',
+      image: 'https://images.unsplash.com/photo-1522202176988-66273c2fd55f?auto=format&fit=crop&w=900&q=80',
+    },
+  ]
+
   useEffect(() => {
 
     const revealElements = document.querySelectorAll('.reveal')
@@ -124,9 +137,78 @@ export default function Landing() {
         }
 
         .hover-card:hover{
-          transform:translateY(-6px);
-          border-color:rgba(255,255,255,.15);
-          box-shadow:0 15px 50px rgba(255,255,255,.04);
+          transform:translateY(-6px) scale(1.01);
+          border-color:rgba(255,255,255,.18);
+          box-shadow:0 18px 60px rgba(255,255,255,.08);
+        }
+
+        .hero-shell{
+          position:relative;
+          border:1px solid rgba(255,255,255,.08);
+          background:
+            linear-gradient(135deg, rgba(255,255,255,.08), rgba(255,255,255,.02)),
+            rgba(14,14,16,.88);
+          box-shadow:0 30px 80px rgba(0,0,0,.45);
+          overflow:hidden;
+        }
+
+        .hero-shell::after{
+          content:"";
+          position:absolute;
+          inset:-40% auto auto -30%;
+          width:180px;
+          height:180px;
+          background:radial-gradient(circle, rgba(255,255,255,.18), transparent 62%);
+          filter:blur(16px);
+          opacity:.55;
+          animation:drift 8s ease-in-out infinite;
+        }
+
+        .hero-orbit{
+          position:absolute;
+          inset:-10px;
+          border-radius:32px;
+          border:1px solid rgba(255,255,255,.08);
+          transform:rotate(-6deg);
+          animation:spinSlow 12s linear infinite;
+          opacity:.45;
+        }
+
+        .hero-image-card{
+          overflow:hidden;
+          border:1px solid rgba(255,255,255,.08);
+          background:rgba(18,18,18,.95);
+          box-shadow:0 20px 50px rgba(0,0,0,.35);
+          transition:transform .35s ease, border-color .35s ease;
+        }
+
+        .hero-image-card:hover{
+          transform:translateY(-4px);
+          border-color:rgba(255,255,255,.18);
+        }
+
+        .hero-image-card img{
+          width:100%;
+          height:100%;
+          object-fit:cover;
+          display:block;
+        }
+
+        .pulse-ring{
+          box-shadow:0 0 0 0 rgba(255,255,255,.14);
+          animation:pulseRing 2.8s infinite;
+        }
+
+        .shine-line{
+          position:absolute;
+          inset:-20% auto auto -10%;
+          width:140px;
+          height:140px;
+          background:linear-gradient(140deg, rgba(255,255,255,.18), transparent 55%);
+          transform:rotate(18deg);
+          opacity:.35;
+          filter:blur(12px);
+          animation:slideShine 5s ease-in-out infinite;
         }
 
         .message-left{
@@ -162,6 +244,27 @@ export default function Landing() {
           100%{transform:translateY(0px);}
         }
 
+        @keyframes drift{
+          0%,100%{transform:translate3d(0,0,0);} 
+          50%{transform:translate3d(18px,-10px,0);} 
+        }
+
+        @keyframes pulseRing{
+          0%{box-shadow:0 0 0 0 rgba(255,255,255,.10);} 
+          70%{box-shadow:0 0 0 18px rgba(255,255,255,0);} 
+          100%{box-shadow:0 0 0 0 rgba(255,255,255,0);} 
+        }
+
+        @keyframes slideShine{
+          0%,100%{transform:translateX(0) rotate(18deg);} 
+          50%{transform:translateX(26px) rotate(18deg);} 
+        }
+
+        @keyframes spinSlow{
+          from{transform:rotate(-6deg);} 
+          to{transform:rotate(354deg);} 
+        }
+
         .glow{
           position:absolute;
           width:500px;
@@ -188,8 +291,8 @@ export default function Landing() {
 
       `}</style>
 
-      <div className="glow top-[-200px] left-[-120px]"></div>
-      <div className="glow bottom-[-250px] right-[-120px]"></div>
+      <div className="glow -top-50 -left-30"></div>
+      <div className="glow -bottom-62.5 -right-30"></div>
 
       <nav className="fixed top-0 left-0 w-full z-50 transition-all duration-300 glass">
 
@@ -375,79 +478,50 @@ export default function Landing() {
             </div>
 
             <div className="relative reveal floating">
-
-              <div className="glass-card rounded-[35px] p-4 shadow-2xl">
-
-                <div className="flex items-center justify-between border-b border-white/5 pb-4">
-
-                  <div className="flex items-center gap-3">
-
-                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-gray-500 to-gray-800 flex items-center justify-center">
-                      <Users size={18} />
-                    </div>
-
+              <div className="hero-shell rounded-[36px] p-4 md:p-5">
+                <div className="hero-orbit" />
+                <div className="shine-line" />
+                <div className="relative z-10 space-y-4">
+                  <div className="flex items-center justify-between rounded-3xl border border-white/8 bg-black/25 p-4">
                     <div>
-
-                      <h3 className="font-medium">
-                        Design Team
-                      </h3>
-
-                      <p className="text-xs text-gray-400">
-                        online now
-                      </p>
-
+                      <p className="text-[10px] uppercase tracking-[0.35em] text-gray-400">Live workspace</p>
+                      <h3 className="mt-1 text-xl font-semibold text-white">Design Team</h3>
                     </div>
-
+                    <div className="pulse-ring rounded-full bg-emerald-400/90 px-3 py-1 text-[10px] uppercase tracking-[0.25em] text-black">Online</div>
                   </div>
 
-                  <MoreVertical size={18} className="text-gray-400" />
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    {showcaseCards.map((item, index) => (
+                      <article key={index} className="hero-image-card rounded-3xl p-3">
+                        <div className="h-28 overflow-hidden rounded-2xl">
+                          <img src={item.image} alt={item.title} />
+                        </div>
+                        <div className="mt-3 flex items-start justify-between gap-3 px-1 pb-1">
+                          <div>
+                            <p className="text-sm font-semibold text-white">{item.title}</p>
+                            <p className="text-xs text-gray-400">{item.label}</p>
+                          </div>
+                          <span className="rounded-full bg-white/8 px-2 py-1 text-[10px] uppercase tracking-[0.25em] text-gray-300">New</span>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
 
+                  <div className="rounded-3xl border border-white/8 bg-black/30 p-4 shadow-2xl">
+                    <div className="flex items-center justify-between text-xs text-gray-300">
+                      <span>Realtime activity</span>
+                      <span className="rounded-full bg-white/8 px-2 py-1">+18%</span>
+                    </div>
+                    <div className="mt-3 h-2 rounded-full bg-white/8 overflow-hidden">
+                      <div className="h-full w-3/4 rounded-full bg-linear-to-r from-emerald-400 via-white to-sky-400" />
+                    </div>
+                    <div className="mt-4 flex items-center gap-3 rounded-2xl bg-white/5 p-3 text-sm text-gray-200">
+                      <Smile size={16} className="text-amber-300" />
+                      <span>Typing indicators, media previews, and secure sync all feel alive.</span>
+                    </div>
+                  </div>
                 </div>
-
-                <div className="space-y-4 py-6 h-[400px] overflow-y-auto custom-scroll">
-
-                  <div className="flex justify-start">
-                    <div className="message-left px-5 py-3 max-w-[80%] text-sm">
-                      Hash UI looks insanely smooth 🔥
-                    </div>
-                  </div>
-
-                  <div className="flex justify-end">
-                    <div className="message-right px-5 py-3 max-w-[80%] text-sm">
-                      realtime performance is crazy fast
-                    </div>
-                  </div>
-
-                  <div className="flex justify-start">
-                    <div className="message-left px-5 py-3 max-w-[80%] text-sm">
-                      file upload + encryption finished
-                    </div>
-                  </div>
-
-                  <div className="flex justify-end">
-                    <div className="message-right px-5 py-3 max-w-[80%] text-sm">
-                      deploying tonight 🚀
-                    </div>
-                  </div>
-
-                </div>
-
-                <div className="border border-white/5 bg-black/20 rounded-2xl p-3 flex items-center gap-3">
-
-                  <Smile size={18} className="text-gray-400" />
-
-                  <input
-                    disabled
-                    placeholder="Type a message..."
-                    className="bg-transparent outline-none flex-1 text-sm"
-                  />
-
-                  <Send size={18} className="rotate-12 text-white/70" />
-
-                </div>
-
               </div>
-
             </div>
 
           </div>
@@ -660,7 +734,7 @@ export default function Landing() {
 
             <div className="glass-card rounded-[40px] p-10 md:p-16 text-center relative overflow-hidden">
 
-              <div className="absolute inset-0 bg-gradient-to-br from-white/[0.03] to-transparent"></div>
+              <div className="absolute inset-0 bg-linear-to-br from-white/3 to-transparent"></div>
 
               <div className="relative z-10">
 
