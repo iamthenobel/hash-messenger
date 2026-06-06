@@ -14,3 +14,4 @@
 [context.production.environment]
   VITE_SUPABASE_URL = "https://pktuxundaidjauegczhf.supabase.co"
   VITE_SUPABASE_ANON_KEY = "sb_publishable_5Z5qpQBFjCDcsTboQzg3dg_vqVzwulE"
+  VITE_CHAT_WS_URL= "wss://hash-messenger.onrender.com"
