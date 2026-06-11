@@ -339,20 +339,36 @@ export default function Chat() {
     return () => subscriptionRef.current?.unsubscribe()
   }, [chatId, currentUser, mergeUniqueMessages, scrollToBottom])
 
+  const sendSocketEvent = useCallback((payload) => {
+    const socket = socketRef.current
+
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      return false
+    }
+
+    try {
+      socket.send(JSON.stringify(payload))
+      return true
+    } catch (error) {
+      console.warn('Socket send failed:', error)
+      return false
+    }
+  }, [])
+
   const handleTyping = async () => {
     if (!currentUser || !chatId) return
 
     if (!isTyping) {
       setIsTyping(true)
       await updateTypingStatus(chatId, currentUser.id, true)
-      socketRef.current?.send(JSON.stringify({ type: 'typing', chatId, userId: currentUser.id, isTyping: true }))
+      sendSocketEvent({ type: 'typing', chatId, userId: currentUser.id, isTyping: true })
     }
 
     if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
     typingTimeoutRef.current = setTimeout(async () => {
       setIsTyping(false)
       await updateTypingStatus(chatId, currentUser.id, false)
-      socketRef.current?.send(JSON.stringify({ type: 'typing', chatId, userId: currentUser.id, isTyping: false }))
+      sendSocketEvent({ type: 'typing', chatId, userId: currentUser.id, isTyping: false })
     }, 2000)
   }
 
@@ -388,7 +404,7 @@ export default function Chat() {
         if (isTyping) {
           setIsTyping(false)
           await updateTypingStatus(chatId, currentUser.id, false)
-          socketRef.current?.send(JSON.stringify({ type: 'typing', chatId, userId: currentUser.id, isTyping: false }))
+          sendSocketEvent({ type: 'typing', chatId, userId: currentUser.id, isTyping: false })
           if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
         }
       } catch (err) {
@@ -740,7 +756,7 @@ const MessageStatus = ({ message, isMe }) => {
     if (!chatId || !currentUser) return
 
     const wsUrl = getChatWsUrl()
-    console.log('🔌 Connecting to WebSocket at:', wsUrl)
+    console.log('🔌 Connecting to WebSocket...')
     const socket = new WebSocket(wsUrl)
     socketRef.current = socket
 
@@ -753,14 +769,17 @@ const MessageStatus = ({ message, isMe }) => {
         const payload = JSON.parse(event.data)
 
         if (payload?.type === 'presence:update' && payload.chatId === chatId) {
-          if (payload.userId && payload.userId !== currentUser.id) {
-            setContactStatus(payload.status === 'online' ? 'online' : 'offline')
+          if (payload.userId) {
             setOnlineUsers(prev => {
               const next = new Set(prev)
               if (payload.status === 'online') next.add(payload.userId)
               else next.delete(payload.userId)
               return next
             })
+          }
+
+          if (payload.userId && payload.userId !== currentUser.id) {
+            setContactStatus(payload.status === 'online' ? 'online' : 'offline')
           }
           return
         }
@@ -794,8 +813,17 @@ const MessageStatus = ({ message, isMe }) => {
     }
 
     return () => {
-      socket.close()
-      socketRef.current = null
+      if (socketRef.current === socket) {
+        socketRef.current = null
+      }
+
+      if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+        try {
+          socket.close()
+        } catch (error) {
+          console.warn('Socket close failed:', error)
+        }
+      }
     }
   }, [chatId, currentUser, mergeUniqueMessages, scrollToBottom])
 
@@ -832,6 +860,8 @@ const MessageStatus = ({ message, isMe }) => {
 
     return () => typingSubscriptionRef.current?.unsubscribe?.()
   }, [chatId, currentUser?.id])
+
+  const isContactOnline = onlineUsers.has(contact?.id) || contactStatus === 'online'
 
   useEffect(() => {
     if (!loading && messages.length > 0) {
@@ -912,9 +942,9 @@ const MessageStatus = ({ message, isMe }) => {
             <div>
               <h2 className="font-semibold text-base text-left">{contact?.full_name || contact?.username || 'Unknown'}</h2>
               <div className="flex items-center gap-1">
-                <span className={`w-2 h-2 rounded-full ${contactTyping ? 'bg-blue-500' : contactStatus === 'online' ? 'bg-emerald-500' : 'bg-gray-600'}`} />
+                <span className={`w-2 h-2 rounded-full ${contactTyping ? 'bg-blue-500' : isContactOnline ? 'bg-emerald-500' : 'bg-gray-600'}`} />
                 <span className="text-[11px] text-gray-400">
-                  {contactTyping ? 'Typing...' : contactStatus === 'online' ? 'Online' : 'Offline'}
+                  {contactTyping ? `${contact?.full_name || contact?.username || 'This user'} is typing...` : isContactOnline ? 'Online' : 'Offline'}
                 </span>
               </div>
             </div>
@@ -1029,7 +1059,7 @@ const MessageStatus = ({ message, isMe }) => {
             <span className="typing-dot w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
             <span className="typing-dot w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
           </div>
-          <span className="text-xs text-gray-400">{contact?.full_name} is typing...</span>
+          <span className="text-xs text-gray-400">{contact?.full_name || contact?.username || 'This user'} is typing...</span>
         </div>
       )}
 

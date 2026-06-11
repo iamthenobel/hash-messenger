@@ -47,7 +47,10 @@ export default function Home() {
   const [selectedChatIds, setSelectedChatIds] = useState(new Set())
   const [toast, setToast] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [typingUsers, setTypingUsers] = useState({})
+  const [onlineUsers, setOnlineUsers] = useState(new Set())
   const longPressTimer = useRef(null)
+  const typingTimersRef = useRef({})
   const homeRealtimeRef = useRef(null)
   const homeSocketRef = useRef(null)
 
@@ -107,7 +110,7 @@ export default function Home() {
     const memberUserIds = [...new Set((allMembers || []).map(member => member.user_id).filter(Boolean))]
     const { data: profileRows, error: profileError } = await supabase
       .from('profiles')
-      .select('id, full_name, username, avatar')
+      .select('id, full_name, username, avatar, status')
       .in('id', memberUserIds)
 
     if (profileError) throw profileError
@@ -146,12 +149,15 @@ export default function Home() {
         const peer = chatMembers.find(m => m.user_id !== userId)?.profiles
         const lastMsg = lastByChat.get(chatId)
         const unreadCount = await getUnreadCount(userId, chatId)
+        const preview = getLastMessagePreview(lastMsg)
 
         return {
           id: chatId,
           name: peer?.full_name || peer?.username || 'Unknown',
           avatar: peer?.avatar || `https://ui-avatars.com/api/?background=252525&color=fff&name=${encodeURIComponent(peer?.full_name || 'User')}`,
-          lastMsg: getLastMessagePreview(lastMsg),
+          lastMsg: lastMsg?.sender_id === userId ? `You: ${preview}` : preview,
+          lastMessageText: preview,
+          isMineLastMessage: lastMsg?.sender_id === userId,
           time: lastMsg ? formatTime(lastMsg.created_at) : formatDateLabel(membership.chats?.created_at),
           unread: unreadCount > 0,
           unreadCount,
@@ -159,6 +165,7 @@ export default function Home() {
           pinned: false,
           contactId: peer?.id || null,
           username: peer?.username || '',
+          status: peer?.status || 'offline',
         }
       })
     )
@@ -473,6 +480,40 @@ export default function Home() {
       try {
         const payload = JSON.parse(event.data)
 
+        if (payload?.type === 'presence:update' && payload.userId && payload.userId !== currentUser.id) {
+          setOnlineUsers(prev => {
+            const next = new Set(prev)
+            if (payload.status === 'online') next.add(payload.userId)
+            else next.delete(payload.userId)
+            return next
+          })
+          return
+        }
+
+        if (payload?.type === 'typing' && payload.chatId && payload.userId && payload.userId !== currentUser.id) {
+          if (typingTimersRef.current[payload.chatId]) {
+            clearTimeout(typingTimersRef.current[payload.chatId])
+          }
+
+          setTypingUsers(prev => ({
+            ...prev,
+            [payload.chatId]: Boolean(payload.isTyping),
+          }))
+
+          if (payload.isTyping) {
+            typingTimersRef.current[payload.chatId] = setTimeout(() => {
+              setTypingUsers(prev => ({
+                ...prev,
+                [payload.chatId]: false,
+              }))
+              delete typingTimersRef.current[payload.chatId]
+            }, 2500)
+          } else {
+            delete typingTimersRef.current[payload.chatId]
+          }
+          return
+        }
+
         if (payload?.type === 'chat:update' && payload.chatId) {
           loadChats(currentUser.id)
           loadPendingRequests(currentUser.id)
@@ -487,6 +528,8 @@ export default function Home() {
     }
 
     return () => {
+      Object.values(typingTimersRef.current).forEach((timer) => clearTimeout(timer))
+      typingTimersRef.current = {}
       socket.close()
       homeSocketRef.current = null
     }
@@ -699,6 +742,10 @@ export default function Home() {
                         e.target.src = `https://ui-avatars.com/api/?background=252525&color=fff&name=${encodeURIComponent(chat.name)}`
                       }}
                     />
+                    <span
+                      className={`absolute bottom-0 right-0 h-3 w-3 rounded-full ring-2 ring-[#141414] ${onlineUsers.has(chat.contactId) || chat.status === 'online' ? 'bg-emerald-400' : 'bg-gray-600'}`}
+                      title={onlineUsers.has(chat.contactId) || chat.status === 'online' ? 'Online' : 'Offline'}
+                    />
                     {chat.unread && (
                       <span className="absolute -top-0.5 -right-0.5 inline-flex min-h-4 min-w-4 items-center justify-center rounded-full bg-emerald-400 px-1 text-[9px] font-semibold text-black ring-2 ring-[#0a0a0a]">
                         {chat.unreadCount > 9 ? '9+' : chat.unreadCount}
@@ -712,7 +759,7 @@ export default function Home() {
                       </h3>
                       <span className="text-[10px] text-gray-500">{chat.time}</span>
                     </div>
-                    <p className="text-xs text-gray-400 truncate">{chat.lastMsg}</p>
+                    <p className="text-xs text-gray-400 truncate">{typingUsers[chat.id] ? 'Typing...' : chat.lastMsg}</p>
                   </div>
                 </div>
               ))
@@ -865,14 +912,20 @@ export default function Home() {
                     onClick={() => navigate(`/chat/${chat.id}`)}
                     className="p-3 flex items-center gap-3 cursor-pointer rounded-2xl bg-[#141414]/80 border border-white/5 hover:bg-[#1a1a1a] transition"
                   >
-                    <img
-                      src={chat.avatar}
-                      alt={chat.name}
-                      className="w-12 h-12 rounded-full object-cover"
-                    />
+                    <div className="relative">
+                      <img
+                        src={chat.avatar}
+                        alt={chat.name}
+                        className="w-12 h-12 rounded-full object-cover"
+                      />
+                      <span
+                        className={`absolute bottom-0 right-0 h-3 w-3 rounded-full ring-2 ring-[#141414] ${onlineUsers.has(chat.contactId) || chat.status === 'online' ? 'bg-emerald-400' : 'bg-gray-600'}`}
+                        title={onlineUsers.has(chat.contactId) || chat.status === 'online' ? 'Online' : 'Offline'}
+                      />
+                    </div>
                     <div className="flex-1 min-w-0">
                       <h3 className="font-semibold text-sm truncate">{chat.name}</h3>
-                      <p className="text-xs text-gray-400 truncate">{chat.lastMsg}</p>
+                      <p className="text-xs text-gray-400 truncate">{typingUsers[chat.id] ? 'Typing...' : chat.lastMsg}</p>
                     </div>
                     <button className="rounded-full bg-white/10 px-3 py-1 text-xs hover:bg-white/20 transition">
                       Open
@@ -897,14 +950,20 @@ export default function Home() {
                   onClick={() => navigate(`/chat/${chat.id}`)}
                   className="p-3 flex items-center gap-3 cursor-pointer rounded-2xl bg-[#141414]/80 border border-white/5 hover:bg-[#1a1a1a] transition"
                 >
-                  <img
-                    src={chat.avatar}
-                    alt={chat.name}
-                    className="w-12 h-12 rounded-full object-cover"
-                  />
+                  <div className="relative">
+                    <img
+                      src={chat.avatar}
+                      alt={chat.name}
+                      className="w-12 h-12 rounded-full object-cover"
+                    />
+                    <span
+                      className={`absolute bottom-0 right-0 h-3 w-3 rounded-full ring-2 ring-[#141414] ${onlineUsers.has(chat.contactId) ? 'bg-emerald-400' : 'bg-gray-600'}`}
+                      title={onlineUsers.has(chat.contactId) ? 'Online' : 'Offline'}
+                    />
+                  </div>
                   <div className="flex-1 min-w-0">
                     <h3 className="font-semibold text-sm truncate">{chat.name}</h3>
-                    <p className="text-xs text-gray-400 truncate">{chat.lastMsg}</p>
+                    <p className="text-xs text-gray-400 truncate">{typingUsers[chat.id] ? 'Typing...' : chat.lastMsg}</p>
                   </div>
                   <button
                     type="button"
