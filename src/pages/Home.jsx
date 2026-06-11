@@ -28,6 +28,7 @@ import supabase,{
   deleteChatForUser,
   archiveChat,
   unarchiveChat,
+  getChatWsUrl,
 } from '../services/supabase'
 
 export default function Home() {
@@ -429,47 +430,67 @@ export default function Home() {
     homeRealtimeRef.current?.unsubscribe?.()
 
     homeRealtimeRef.current = supabase
-      .channel(`home-messages:${currentUser.id}`)
+      .channel(`home-updates:${currentUser.id}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'messages' },
         () => {
           loadChats(currentUser.id)
+          loadPendingRequests(currentUser.id)
         }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'contact_requests', filter: `recipient_id=eq.${currentUser.id}` },
+        () => loadPendingRequests(currentUser.id)
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'contact_requests', filter: `sender_id=eq.${currentUser.id}` },
+        () => loadPendingRequests(currentUser.id)
       )
       .subscribe()
 
     return () => homeRealtimeRef.current?.unsubscribe?.()
-  }, [currentUser?.id, loadChats])
+  }, [currentUser?.id, loadChats, loadPendingRequests])
 
   useEffect(() => {
     if (!currentUser?.id) return
 
-    const wsUrl = import.meta.env.VITE_CHAT_WS_URL || 'ws://localhost:3001'
+    const wsUrl = getChatWsUrl()
+    console.log('🔌 Connecting to home websocket at:', wsUrl)
     const socket = new WebSocket(wsUrl)
     homeSocketRef.current = socket
 
     socket.onopen = () => {
       const chatIds = (chats || []).map(chat => chat.id).filter(Boolean)
-      chatIds.forEach(chatId => socket.send(JSON.stringify({ type: 'subscribe', chatId })))
+      chatIds.forEach(chatId => {
+        socket.send(JSON.stringify({ type: 'subscribe', chatId, userId: currentUser.id }))
+      })
     }
 
     socket.onmessage = (event) => {
       try {
         const payload = JSON.parse(event.data)
-        if (payload?.type !== 'chat:update' || !payload.chatId) return
 
-        loadChats(currentUser.id)
+        if (payload?.type === 'chat:update' && payload.chatId) {
+          loadChats(currentUser.id)
+          loadPendingRequests(currentUser.id)
+        }
       } catch (error) {
         console.error('Home WebSocket update failed:', error)
       }
+    }
+
+    socket.onerror = () => {
+      console.warn('Home websocket unavailable; realtime updates will continue via Supabase subscriptions')
     }
 
     return () => {
       socket.close()
       homeSocketRef.current = null
     }
-  }, [currentUser?.id, chats, loadChats])
+  }, [currentUser?.id, chats, loadChats, loadPendingRequests])
 
   // Initialize
   useEffect(() => {

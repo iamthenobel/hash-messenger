@@ -44,6 +44,7 @@ import supabase, {
   unblockUser,
   deleteChatForUser,
   subscribeToReadReceipts,
+  getChatWsUrl,
 } from '../services/supabase'
 
 // Cache for images to prevent reloading
@@ -340,14 +341,18 @@ export default function Chat() {
 
   const handleTyping = async () => {
     if (!currentUser || !chatId) return
+
     if (!isTyping) {
       setIsTyping(true)
       await updateTypingStatus(chatId, currentUser.id, true)
+      socketRef.current?.send(JSON.stringify({ type: 'typing', chatId, userId: currentUser.id, isTyping: true }))
     }
+
     if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
     typingTimeoutRef.current = setTimeout(async () => {
       setIsTyping(false)
       await updateTypingStatus(chatId, currentUser.id, false)
+      socketRef.current?.send(JSON.stringify({ type: 'typing', chatId, userId: currentUser.id, isTyping: false }))
     }, 2000)
   }
 
@@ -383,6 +388,7 @@ export default function Chat() {
         if (isTyping) {
           setIsTyping(false)
           await updateTypingStatus(chatId, currentUser.id, false)
+          socketRef.current?.send(JSON.stringify({ type: 'typing', chatId, userId: currentUser.id, isTyping: false }))
           if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
         }
       } catch (err) {
@@ -733,18 +739,39 @@ const MessageStatus = ({ message, isMe }) => {
   useEffect(() => {
     if (!chatId || !currentUser) return
 
-    const wsUrl = import.meta.env.VITE_CHAT_WS_URL || 'ws://localhost:3001'
+    const wsUrl = getChatWsUrl()
     console.log('🔌 Connecting to WebSocket at:', wsUrl)
     const socket = new WebSocket(wsUrl)
     socketRef.current = socket
 
     socket.onopen = () => {
-      socket.send(JSON.stringify({ type: 'subscribe', chatId }))
+      socket.send(JSON.stringify({ type: 'subscribe', chatId, userId: currentUser.id }))
     }
 
     socket.onmessage = (event) => {
       try {
         const payload = JSON.parse(event.data)
+
+        if (payload?.type === 'presence:update' && payload.chatId === chatId) {
+          if (payload.userId && payload.userId !== currentUser.id) {
+            setContactStatus(payload.status === 'online' ? 'online' : 'offline')
+            setOnlineUsers(prev => {
+              const next = new Set(prev)
+              if (payload.status === 'online') next.add(payload.userId)
+              else next.delete(payload.userId)
+              return next
+            })
+          }
+          return
+        }
+
+        if (payload?.type === 'typing' && payload.chatId === chatId) {
+          if (payload.userId && payload.userId !== currentUser.id) {
+            setContactTyping(Boolean(payload.isTyping))
+          }
+          return
+        }
+
         if (payload?.type !== 'chat:update' || payload.chatId !== chatId || !payload.message) return
 
         setMessages(prev => {
@@ -760,6 +787,10 @@ const MessageStatus = ({ message, isMe }) => {
       } catch (error) {
         console.error('WebSocket chat update failed:', error)
       }
+    }
+
+    socket.onerror = () => {
+      console.warn('Chat websocket unavailable; realtime updates will continue via Supabase subscriptions')
     }
 
     return () => {

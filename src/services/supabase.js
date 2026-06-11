@@ -722,6 +722,18 @@ export const broadcastChatEvent = async (chatId, message) => {
   }
 }
 
+export const getChatWsUrl = () => {
+  const configured = (import.meta.env.VITE_CHAT_WS_URL || '').trim()
+  const fallback = import.meta.env.DEV
+    ? 'ws://localhost:3001'
+    : 'wss://hash-messenger.onrender.com'
+
+  return (configured || fallback)
+    .replace(/^https:/, 'wss:')
+    .replace(/^http:/, 'ws:')
+    .replace(/\/+$/, '')
+}
+
 export const getUnreadCount = async (userId, chatId = null) => {
   try {
     let query = supabase
